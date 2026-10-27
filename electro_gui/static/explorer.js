@@ -364,9 +364,19 @@
   function fitStateToSession(summary) {
     S.roster = S.roster.filter(id => D.unitMap.has(id));
     if (!D.units.some(u => u.id === S.unit)) S.unit = (unitList()[0] || D.units[0]).id;
-    if (!summary.alignments.some(a => a.key === S.align)) S.align = 'object_outcome';
+    S.align = fallbackAlign(summary.alignments, S.align);
     // A saved marker on an event this session no longer offers (e.g. the hidden object_spawn) would 404.
     S.markers = S.markers.filter(m => [m.e, m.end].every(e => !e || e === 'object_outcome' || summary.events.includes(e)));
+  }
+
+  // The alignment to draw: the wanted one if this session has events on it, else object_outcome, else
+  // trial_initiation.  A session from another task (phys-analysis imports) lists object_outcome with no events
+  // at all, so an alignment only counts when it has events; failing all three, the first one that does.
+  function fallbackAlign(alignments, wanted) {
+    const has = key => alignments.some(a => a.key === key && a.n > 0);
+    for (const key of [wanted, 'object_outcome', 'trial_initiation']) if (has(key)) return key;
+    const any = alignments.find(a => a.n > 0);
+    return any ? any.key : 'object_outcome';
   }
 
   // --------------------------------------------------------------- model

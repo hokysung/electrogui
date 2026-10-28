@@ -21,9 +21,10 @@ import numpy as np
 from electro_gui import explorer
 from electro_gui.analysis import compute_unit, prepare_rows
 from electro_gui.server import Application, make_server
-from imitation_phys import explorer_core
-from imitation_phys.session_store import HIDDEN_EVENTS, SessionStore, alignment_keys
-from imitation_phys.synthetic_session import write_synthetic_session_file
+from session_viewer import explorer_core
+from session_viewer.store import HIDDEN_EVENTS, SessionStore, alignment_keys
+
+from tests.fixtures import MUA, NOISE, SUA, UNITS, synthetic_session
 
 CORE_JS = Path(__file__).resolve().parents[1] / "electro_gui" / "static" / "core.js"
 
@@ -39,8 +40,7 @@ class ExplorerPayloadTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
-        path = write_synthetic_session_file(Path(cls.temp.name))
-        cls.sid = path.name.removesuffix("_session.nwb")
+        path, cls.sid, _ = synthetic_session(cls.temp.name)
         cls.store = SessionStore([], [path], Path(cls.temp.name) / "cache")
         cls.loaded = cls.store.get(cls.sid)
 
@@ -49,20 +49,25 @@ class ExplorerPayloadTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def test_table_rows_match_v01_candidates_in_session_order(self):
-        table = explorer.alignment_table(self.loaded, "object_outcome")
+        table = explorer.alignment_table(self.loaded, "stimuli_on")
         complete = {t["id"] for t in self.loaded.trials if t["complete"] is True}
-        expected = sorted((r for r in self.loaded.rows if r["event"] in explorer.OUTCOMES and r["trial"] in complete),
+        expected = sorted((r for r in self.loaded.rows if r["event"] == "stimuli_on" and r["trial"] in complete),
                           key=lambda r: (r["t"], r["row_id"]))
         self.assertEqual(table["row_id"], [r["row_id"] for r in expected])
         self.assertEqual(table["n"], len(expected))
         self.assertEqual(table["t"], sorted(table["t"]))
+        self.assertNotIn("object", table)
         columns = {c["key"]: c for c in table["columns"]}
-        self.assertIn("world", columns)
-        world = columns["world"]
-        self.assertEqual(world["kind"], "cat")
-        decoded = [None if c < 0 else world["levels"][c] for c in world["codes"]]
-        self.assertEqual(decoded, [r["world"] for r in expected])
-        for key in ("row_id", "t", "event", "complete", "session_time"):
+        for key in ("task", "microstim", "sham", "rewarded", "previous_task"):
+            self.assertIn(key, columns)
+        task = columns["task"]
+        self.assertEqual(task["kind"], "cat")
+        decoded = [None if c < 0 else task["levels"][c] for c in task["codes"]]
+        self.assertEqual(decoded, [r["task"] for r in expected])
+        self.assertEqual(set(task["levels"]), {"memory_saccade", "pursuit_memory"})
+        stim = columns["microstim"]
+        self.assertEqual(stim["levels"], [False, True])
+        for key in ("row_id", "t", "event", "complete", "session_time", "object_uid"):
             self.assertNotIn(key, columns)
         for column in table["columns"]:
             if column.get("relative"):
@@ -72,82 +77,83 @@ class ExplorerPayloadTests(unittest.TestCase):
 
     def test_spikes_are_half_open_and_relative(self):
         lo, hi = -1.0, 1.5
-        raster = explorer.unit_raster(self.loaded, "object_outcome", 1, "all_complete", lo, hi)
-        table = explorer.alignment_table(self.loaded, "object_outcome")
-        spikes = np.sort(self.loaded.spikes(1))
+        raster = explorer.unit_raster(self.loaded, "stimuli_on", SUA, "all_complete", lo, hi)
+        table = explorer.alignment_table(self.loaded, "stimuli_on")
+        spikes = np.sort(self.loaded.spikes(SUA))
         self.assertEqual(raster["row_id"], table["row_id"])
         for t, got in zip(table["t"], raster["spikes"]):
             want = spikes[(spikes >= t + lo) & (spikes < t + hi)] - t
             np.testing.assert_allclose(got, want, atol=1e-5)
         with self.assertRaises(ValueError):
-            explorer.unit_raster(self.loaded, "object_outcome", 99999, "all_complete", lo, hi)
+            explorer.unit_raster(self.loaded, "stimuli_on", 99999, "all_complete", lo, hi)
         with self.assertRaises(ValueError):
-            explorer.unit_raster(self.loaded, "object_outcome", 1, "all_complete", 1.0, -1.0)
+            explorer.unit_raster(self.loaded, "stimuli_on", SUA, "all_complete", 1.0, -1.0)
 
     def test_span_rule_reproduces_prepare_rows_eligibility(self):
         for policy in ("all_complete", "verified_stable"):
             for pre, post in ((-0.5, 0.5), (-2.0, 1.0), (-6.0, 4.0)):
-                raster = explorer.unit_raster(self.loaded, "object_outcome", 2, policy, pre - 1, post + 1)
+                raster = explorer.unit_raster(self.loaded, "stimuli_on", MUA, policy, pre - 1, post + 1)
                 shown = {rid for rid, span in zip(raster["row_id"], raster["span"])
                          if span and pre - explorer.GUARD_S >= span[0] - 1e-9 and post + explorer.GUARD_S <= span[1] + 1e-9}
                 request = {"pre": pre, "post": post, "bin": 0.05, "sigma": 0, "count_window": [pre, post],
-                           "stability": policy, "alignment": "object_outcome", "recipe": {"enabled": False, "cohorts": []}}
-                rows, _, _ = prepare_rows(self.loaded, request, [2])
+                           "stability": policy, "alignment": "stimuli_on", "recipe": {"enabled": False, "cohorts": []}}
+                rows, _, _ = prepare_rows(self.loaded, request, [MUA])
                 self.assertEqual(shown, {r["row_id"] for r in rows}, (policy, pre, post))
+        # unit 5 is stable on the first half only: verified_stable keeps fewer rows
+        stable = explorer.unit_raster(self.loaded, "stimuli_on", MUA, "verified_stable", -1, 1)
+        every = explorer.unit_raster(self.loaded, "stimuli_on", MUA, "all_complete", -1, 1)
+        self.assertLess(sum(s is not None for s in stable["span"]), sum(s is not None for s in every["span"]))
 
-    def test_object_spawn_is_not_offered_anywhere(self):
-        # A trial the animal never initiates times out with every object spawned
-        # and none shown (sub-Ravel_ses-2026_09_15 trial 314), so a spawn-aligned
-        # row can belong to an object that was never presented.
-        self.assertEqual(HIDDEN_EVENTS, {"object_spawn"})
-        spawn = {"event": "object_spawn", "trial": 1, "t": 1.0, "row_id": 10 ** 6, "object_uid": "x"}
-        self.assertEqual(alignment_keys([spawn, {"event": "trial_initiation"}]), ["object_avoided", "object_outcome", "object_touched", "trial_initiation"])
-        with mock.patch.object(self.loaded, "rows", [*self.loaded.rows, spawn]):
-            summary = explorer.session_summary(self.loaded)
-            self.assertNotIn("object_spawn", summary["events"])
-            self.assertNotIn("object_spawn", [a["key"] for a in summary["alignments"]])
-            with self.assertRaises(KeyError):
-                explorer.event_times(self.loaded, "object_spawn")
-            with self.assertRaises(KeyError):
-                explorer.alignment_rows(self.loaded, "object_spawn")
-            request = {"pre": -0.1, "post": 0.5, "bin": 0.05, "sigma": 0.05, "stability": "all_complete",
-                       "alignment": "object_spawn", "recipe": {"enabled": False, "cohorts": []}}
-            with self.assertRaises(ValueError):
-                prepare_rows(self.loaded, request, [2])
+    def test_every_recorded_event_is_offered_and_unknown_ones_refused(self):
+        self.assertEqual(HIDDEN_EVENTS, frozenset())
+        self.assertEqual(alignment_keys([{"event": "microstim"}, {"event": "fix_on"}]), ["fix_on", "microstim", "stim_train"])
+        summary = explorer.session_summary(self.loaded)
+        self.assertEqual(set(summary["events"]), {r["event"] for r in self.loaded.rows})
+        self.assertIn("stim_train", [a["key"] for a in summary["alignments"]])
+        with self.assertRaises(KeyError):
+            explorer.event_times(self.loaded, "object_spawn")
+        with self.assertRaises(KeyError):
+            explorer.alignment_rows(self.loaded, "object_spawn")
+        request = {"pre": -0.1, "post": 0.5, "bin": 0.05, "sigma": 0.05, "stability": "all_complete",
+                   "alignment": "object_spawn", "recipe": {"enabled": False, "cohorts": []}}
+        with self.assertRaises(ValueError):
+            prepare_rows(self.loaded, request, [SUA])
 
-    def test_touched_and_avoided_pool_their_outcome_events(self):
-        touched = {"prey_capture", "predator_contact"}
-        avoided = {"prey_miss", "predator_avoid"}
-        for key, members in (("object_touched", touched), ("object_avoided", avoided)):
-            rows = explorer.alignment_rows(self.loaded, key)
-            self.assertTrue(rows)
-            self.assertEqual({r["event"] for r in rows} - members, set())
-            self.assertGreaterEqual(explorer.event_times(self.loaded, key)["n"], len(rows))  # no complete-trial filter
-            self.assertEqual(explorer.alignment_counts(self.loaded)[key], len(rows))
-        self.assertEqual(len(explorer.alignment_rows(self.loaded, "object_touched"))
-                         + len(explorer.alignment_rows(self.loaded, "object_avoided")),
-                         len(explorer.alignment_rows(self.loaded, "object_outcome")))
+    def test_stim_train_pools_stim_and_sham_onsets(self):
+        rows = explorer.alignment_rows(self.loaded, "stim_train")
+        self.assertTrue(rows)
+        self.assertEqual({r["event"] for r in rows}, {"microstim", "sham_microstim"})
+        self.assertEqual(len(rows), len(explorer.alignment_rows(self.loaded, "microstim"))
+                         + len(explorer.alignment_rows(self.loaded, "sham_microstim")))
+        self.assertEqual(explorer.alignment_counts(self.loaded)["stim_train"], len(rows))
+        table = explorer.alignment_table(self.loaded, "stim_train")
+        self.assertEqual(set(table["event"]), {"microstim", "sham_microstim"})
+        stim = {c["key"]: c for c in table["columns"]}["microstim"]
+        decoded = [stim["levels"][c] for c in stim["codes"]]
+        self.assertEqual(decoded, [e == "microstim" for e in table["event"]])
 
     def test_event_times_cover_every_valid_occurrence(self):
-        name = next(r["event"] for r in self.loaded.rows if r["event"] in explorer.OUTCOMES)
-        events = explorer.event_times(self.loaded, name)
-        expected = [r for r in self.loaded.rows if r["event"] == name]
+        events = explorer.event_times(self.loaded, "reward")
+        expected = [r for r in self.loaded.rows if r["event"] == "reward"]
         self.assertEqual(events["n"], len(expected))
         self.assertEqual(events["t"], sorted(events["t"]))
-        union = explorer.event_times(self.loaded, "object_outcome")
-        self.assertGreaterEqual(union["n"], events["n"])
+        self.assertNotIn("object", events)
+        union = explorer.event_times(self.loaded, "stim_train")
+        self.assertEqual(union["n"], explorer.event_times(self.loaded, "microstim")["n"] + explorer.event_times(self.loaded, "sham_microstim")["n"])
 
     def test_session_summary_carries_peak_channels_and_alignment_counts(self):
         summary = explorer.session_summary(self.loaded)
         self.assertTrue(all("peak_channel" in u for u in summary["units"]))
-        self.assertEqual({u["id"]: u["peak_channel"] for u in summary["units"]}[2], 3)
+        self.assertEqual({u["id"]: u["peak_channel"] for u in summary["units"]}[SUA], 10)
+        self.assertEqual({u["id"]: u["quality"] for u in summary["units"]}, {SUA: "sua", NOISE: "noise", MUA: "mua"})
         counts = {a["key"]: a["n"] for a in summary["alignments"]}
-        self.assertEqual(counts["object_outcome"], explorer.alignment_table(self.loaded, "object_outcome")["n"])
+        self.assertEqual(counts["stimuli_on"], explorer.alignment_table(self.loaded, "stimuli_on")["n"])
+        self.assertEqual(counts["stimuli_on"], 60)
 
     def test_spike_train_is_every_spike_of_the_unit(self):
         # The behavior timeline's spike lane: the unit's whole train, no eligibility rule, as
         # integer tick differences on the session clock.
-        for uid in (1, 2):
+        for uid in (SUA, MUA):
             train = explorer.spike_train(self.loaded, uid)
             expected = np.sort(self.loaded.spikes(uid))
             self.assertEqual(train["n"], len(expected))
@@ -161,7 +167,7 @@ class ExplorerPayloadTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_core_js_spike_lane_helpers(self):
-        train = explorer.spike_train(self.loaded, 1)
+        train = explorer.spike_train(self.loaded, SUA)
         script = """
 const C = require(process.argv[1]);
 const train = JSON.parse(require('fs').readFileSync(0, 'utf8'));
@@ -175,7 +181,7 @@ process.stdout.write(JSON.stringify({t: Array.from(t), sparse: [Array.from(spars
         done = subprocess.run(["node", "-e", script, str(CORE_JS)], input=json.dumps(train),
                               capture_output=True, text=True, timeout=60, check=True)
         js = json.loads(done.stdout)
-        np.testing.assert_allclose(js["t"], np.sort(self.loaded.spikes(1)), atol=train["tick_s"] / 2 + 1e-9)
+        np.testing.assert_allclose(js["t"], np.sort(self.loaded.spikes(SUA)), atol=train["tick_s"] / 2 + 1e-9)
         # [t0, t1) into equal columns: 1.0 and 2.5 are outside; sparse spikes shade as plain ticks (ref 1).
         self.assertEqual(js["sparse"], [[1, 1, 0, 0, 0, 0, 0, 0, 0, 1], 1, 3])
         # A 20-spike burst in one column: ref is the 95th percentile of non-empty columns, so the
@@ -183,46 +189,39 @@ process.stdout.write(JSON.stringify({t: Array.from(t), sparse: [Array.from(spars
         self.assertEqual(js["dense"], [[20, 0, 0, 0, 0, 1, 0, 0, 0, 1], 20, 22])
         self.assertEqual(js["empty"], [[0, 0, 0, 0], 1, 0])
 
-    def test_behavior_timeline_lists_every_resolved_object_once(self):
+    def test_behavior_timeline_lists_every_trial_and_event(self):
         behavior = explorer.behavior_timeline(self.loaded)
-        outcome_rows = {}
-        for r in sorted((r for r in self.loaded.rows if r["event"] in explorer.OUTCOMES), key=lambda r: (r["t"], r["row_id"])):
-            outcome_rows.setdefault((r["trial"], str(r["object_uid"])), r)
-        objects = behavior["objects"]
-        self.assertEqual(len(objects["t"]), len(outcome_rows))
-        self.assertEqual(objects["t"], sorted(objects["t"]))
-        for k, (trial, uid) in enumerate(zip(objects["trial"], objects["uid"])):
-            row = outcome_rows[(trial, uid)]
-            self.assertEqual(objects["row_id"][k], row["row_id"])
-            self.assertAlmostEqual(objects["t"][k], row["t"], places=6)
-            self.assertEqual(objects["outcome"][k], row["event"])
-            for key in ("role", "action", "correct", "bar", "image_id"):
-                self.assertEqual(objects[key][k], row[key], key)
-            onsets = [r["t"] for r in self.loaded.rows if r["event"] == "object_visible_onset"
-                      and r["trial"] == trial and str(r["object_uid"]) == uid]
-            self.assertEqual(objects["onset"][k], round(min(onsets), 6) if onsets else None)
         trials = behavior["trials"]
         self.assertEqual(trials["start"], sorted(trials["start"]))
         by_id = {t["id"]: t for t in self.loaded.trials}
         self.assertEqual(set(trials["id"]), {t["id"] for t in self.loaded.trials if t["start"] is not None})
         for i, tid in enumerate(trials["id"]):
-            self.assertEqual(trials["world"][i], by_id[tid]["world"])
+            for key in ("task", "rewarded", "microstim", "sham"):
+                self.assertEqual(trials[key][i], by_id[tid][key], key)
             self.assertLessEqual(trials["start"][i], trials["stop"][i])
+        self.assertEqual(sum(trials["microstim"]), 12)
+        self.assertEqual(sum(trials["sham"]), 12)
+        events = behavior["events"]
+        self.assertNotIn("objects", behavior)
+        self.assertEqual(len(events["t"]), len(self.loaded.rows))
+        self.assertEqual(events["t"], sorted(events["t"]))
+        rows = {r["row_id"]: r for r in self.loaded.rows}
+        for trial, t, event, rid in zip(events["trial"], events["t"], events["event"], events["row_id"]):
+            self.assertEqual((rows[rid]["trial"], rows[rid]["event"]), (trial, event))
+            self.assertAlmostEqual(rows[rid]["t"], t, places=6)
+        json.dumps(behavior, allow_nan=False)
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_core_js_behavior_helpers(self):
-        behavior = explorer.behavior_timeline(self.loaded)
-        # Displayed colours of equal-luminance stimuli, read from the most common opaque pixel of
-        # mworks/imitation/stimulus_set/<id>.png (2026-09-28).
-        measured = {"squarequalum_0_big_uniform": "#fe4848", "squarequalum_10_big_uniform": "#c57500",
-                    "squarequalum_14_big_uniform": "#a18600", "squarequalum_34_big_uniform": "#00d804",
-                    "squarequalum_52_big_uniform": "#00b2c4", "squarequalum_71_big_uniform": "#8563fe",
-                    "squarequalum_80_big_uniform": "#ce3efe", "squarequalum_94_big_uniform": "#fe3c8d",
-                    "squarequalum_99_big_uniform": "#fe455b", "barsequalum_43_big_uniform": "#00c46c"}
+        full = explorer.behavior_timeline(self.loaded)
+        # The first 8 trials: the yoke geometry below is worked out for 8.
+        keep = set(full["trials"]["id"][:8])
+        behavior = {**full, "trials": {k: v[:8] for k, v in full["trials"].items()},
+                    "events": {k: [v for v, tr in zip(vals, full["events"]["trial"]) if tr in keep] for k, vals in full["events"].items()}}
         script = """
 const C = require(process.argv[1]);
 const fs = require('fs');
-const [behavior, ids] = JSON.parse(fs.readFileSync(0, 'utf8'));
+const behavior = JSON.parse(fs.readFileSync(0, 'utf8'));
 const B = C.prepareBehavior(behavior);
 const n = B.trials.n, pos = [];
 for (let p = 0; p <= n; p += 0.25) pos.push([p, C.posAtTime(B, C.timeAtPos(B, p))]);
@@ -231,42 +230,34 @@ const yk = (c, count, centre, min) => { const r = C.yokedTrials(B, C.behaviorVie
 const vt = (c, count) => { const r = C.viewTrials(B, C.behaviorView(B, c, count)); return [r.first, r.last]; };
 const yoke = {view: [vt(1.5, 3), vt(4.5, 3), vt(5, 2.5)], widened: yk(1.5, 3, 1, 5), covers: yk(1.5, 3, 7, 5),
   centred: yk(5, 2, 5, 5), wide: yk(4, 6, 0, 5), all: yk(1.5, 3, 1, 20)};
-process.stdout.write(JSON.stringify({colors: ids.map(C.stimulusColor), other: [C.stimulusColor('foo_1'), C.stimulusColor(null)], yoke,
-  lanes: Array.from(B.objects.lane), laneCounts: Array.from(B.objects.lanes), tpos: Array.from(B.objects.tpos), pos,
+process.stdout.write(JSON.stringify({yoke, tpos: Array.from(B.events.tpos), byTrial: B.byTrial, task: B.trials.task, pos,
   views: [[v.a, v.b], [w.a, w.b], [all.a, all.b]], starts: Array.from(B.trials.start).map((s, p) => C.timeAtPos(B, p) - s)}));
 """
-        done = subprocess.run(["node", "-e", script, str(CORE_JS)], input=json.dumps([behavior, list(measured)]),
+        done = subprocess.run(["node", "-e", script, str(CORE_JS)], input=json.dumps(behavior),
                               capture_output=True, text=True, timeout=60, check=True)
         js = json.loads(done.stdout)
-        self.assertEqual(js["colors"], list(measured.values()))
-        self.assertEqual(js["other"], [None, None])
         for p, back in js["pos"]:
             self.assertAlmostEqual(p, back, places=6)
         np.testing.assert_allclose(js["starts"], 0, atol=1e-9)
         n = len(behavior["trials"]["id"])
-        self.assertEqual(js["views"], [[0, min(3, n)], [n - min(3, n), n], [0, n]])
-        # Yoked rasters: the view's trials (centres in [a, b)), widened to `min` around the centre
-        # trial but always covering the view, clamped to the session.  The synthetic session has 8 trials.
         self.assertEqual(n, 8)
+        self.assertEqual(js["views"], [[0, 3], [5, 8], [0, 8]])
+        # Yoked rasters: the view's trials (centres in [a, b)), widened to `min` around the centre
+        # trial but always covering the view, clamped to the session.
         self.assertEqual(js["yoke"], {"view": [[0, 2], [3, 5], [4, 5]], "widened": [0, 4], "covers": [0, 4],
                                       "centred": [3, 7], "wide": [1, 6], "all": [0, 7]})
-        objects = behavior["objects"]
         pos = {tid: i for i, tid in enumerate(behavior["trials"]["id"])}
-        self.assertEqual(js["tpos"], [pos.get(t, -1) for t in objects["trial"]])
-        groups = {}
-        for k, (trial, role) in enumerate(zip(objects["trial"], objects["role"])):
-            groups.setdefault((trial, role), []).append(k)
-        for (trial, role), ks in groups.items():
-            ks.sort(key=lambda k: (objects["order"][k] if objects["order"][k] is not None else 1e9, objects["t"][k]))
-            self.assertEqual([js["lanes"][k] for k in ks], list(range(len(ks))))
-            self.assertEqual({js["laneCounts"][k] for k in ks}, {len(ks)})
+        self.assertEqual(js["tpos"], [pos.get(t, -1) for t in behavior["events"]["trial"]])
+        self.assertEqual(js["task"], behavior["trials"]["task"])
+        for p, ks in enumerate(js["byTrial"]):
+            self.assertEqual({behavior["events"]["trial"][k] for k in ks}, {behavior["trials"]["id"][p]})
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_core_js_psth_matches_compute_unit(self):
         pre, post, bin_, sigma = -1.0, 1.0, 0.05, 0.05
-        table = explorer.alignment_table(self.loaded, "object_outcome")
-        raster = explorer.unit_raster(self.loaded, "object_outcome", 3, "all_complete", pre - 0.65, post + 0.65)
-        request = {"unit_id": 3, "alignment": "object_outcome", "pre": pre, "post": post, "bin": bin_, "sigma": sigma,
+        table = explorer.alignment_table(self.loaded, "stimuli_on")
+        raster = explorer.unit_raster(self.loaded, "stimuli_on", SUA, "all_complete", pre - 0.65, post + 0.65)
+        request = {"unit_id": SUA, "alignment": "stimuli_on", "pre": pre, "post": post, "bin": bin_, "sigma": sigma,
                    "count_window": [-0.5, 0.0], "stability": "all_complete", "recipe": {"enabled": False, "cohorts": []}}
         v01 = compute_unit(self.loaded, request)
         self.assertEqual(len(v01["groups"]), 1)
@@ -303,8 +294,7 @@ class PopulationWorkspaceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
-        path = write_synthetic_session_file(Path(cls.temp.name))
-        cls.sid = path.name.removesuffix("_session.nwb")
+        path, cls.sid, _ = synthetic_session(cls.temp.name)
         cls.loaded = SessionStore([], [path], Path(cls.temp.name) / "cache").get(cls.sid)
 
     @classmethod
@@ -312,7 +302,7 @@ class PopulationWorkspaceTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def v01(self, method="pca", scaling="zscore"):
-        request = {"unit_ids": [1, 2, 3, 4, 5, 6], "alignment": "object_outcome", "pre": -1.0, "post": 1.0, "bin": 0.05,
+        request = {"unit_ids": list(UNITS), "alignment": "stimuli_on", "pre": -1.0, "post": 1.0, "bin": 0.05,
                    "sigma": 0.05, "count_window": [-0.5, 0.0], "stability": "all_complete", "method": method,
                    "scaling": scaling, "components": 2}
         from electro_gui.population import compute_population
@@ -346,8 +336,8 @@ class PopulationWorkspaceTests(unittest.TestCase):
 
     def test_fit_rejects_rows_outside_the_eligibility_rule(self):
         request, v01 = self.v01()
-        table = explorer.alignment_table(self.loaded, "object_outcome")
-        spans = explorer_core.population_spans(self.loaded, "object_outcome", [1, 2], "all_complete")
+        table = explorer.alignment_table(self.loaded, "stimuli_on")
+        spans = explorer_core.population_spans(self.loaded, "stimuli_on", [SUA, MUA], "all_complete")
         wide = next((rid for rid, span in zip(spans["row_id"], spans["span"]) if span and -6 - 0.4 < span[0]), None)
         with self.assertRaises(ValueError):
             self.fit(request, v01, groups=[{"key": "a", "row_ids": [table["row_id"][0], table["row_id"][0]]}])
@@ -357,7 +347,7 @@ class PopulationWorkspaceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.fit(request, v01, pre=-6.0, groups=[{"key": "a", "row_ids": [wide]}])
         with self.assertRaises(ValueError):
-            self.fit(request, v01, unit_ids=[1])
+            self.fit(request, v01, unit_ids=[SUA])
 
     def test_ica_and_fa_run_with_event_weighting(self):
         for method in ("ica", "fa"):
@@ -371,9 +361,11 @@ class PopulationWorkspaceTests(unittest.TestCase):
         for method in ("pca", "ica", "fa"):
             with self.subTest(method=method):
                 request, v01 = self.v01(method=method)
-                got = self.fit(request, v01, components=4)
+                # 2 of the 3 units: a full-rank PCA (components == units) trips session_viewer's fit_basis,
+                # whose PCA noise_variance_ is then a plain float without .tolist().
+                got = self.fit(request, v01, components=2)
                 cum, single = np.array(got["cumulative_r2"]), np.array(got["component_r2"])
-                self.assertEqual(len(cum), 4)
+                self.assertEqual(len(cum), 2)
                 self.assertAlmostEqual(cum[-1], got["reconstruction_r2"], places=5)
                 self.assertTrue(np.all(np.diff(cum) >= -1e-6))
                 if method != "fa":  # uncorrelated scores: the curve is the running sum of the bars
@@ -381,8 +373,8 @@ class PopulationWorkspaceTests(unittest.TestCase):
 
     def test_component_count_is_capped_by_the_data_not_ten(self):
         request, v01 = self.v01()
-        with self.assertRaisesRegex(ValueError, "nonconstant units"):  # 6 units: past the old 2-10 check
-            self.fit(request, v01, components=11)
+        with self.assertRaisesRegex(ValueError, "units vary"):  # 3 units: the data, not the 2-10 check, refuses 4
+            self.fit(request, v01, components=4)
         with self.assertRaisesRegex(ValueError, f"Choose 2-{explorer.MAX_COMPONENTS} components"):
             self.fit(request, v01, components=explorer.MAX_COMPONENTS + 1)
 
@@ -394,7 +386,7 @@ class PopulationWorkspaceTests(unittest.TestCase):
                     fitted = self.fit(request, v01, weight=weight)
                     groups = [{"key": g["name"], "label": g["label"], "row_ids": [r["row_id"] for r in v01["rows"] if r["group"] == g["name"]]}
                               for g in v01["groups"]]
-                    body = {"unit_ids": request["unit_ids"], "alignment": "object_outcome", "policy": "all_complete",
+                    body = {"unit_ids": request["unit_ids"], "alignment": "stimuli_on", "policy": "all_complete",
                             "pre": -1.0, "post": 1.0, "bin": 0.05, "sigma": 0.05, "weight": weight, "method": method,
                             "scaling": "zscore", "components": 2, "groups": groups, "probe_times": [0.0, -0.37]}
                     probe = explorer.population_probe(self.loaded, body)
@@ -418,15 +410,15 @@ class PopulationWorkspaceTests(unittest.TestCase):
             bits = base64.b64decode(masks["units"][str(unit["id"])])
             decoded = {t for i, t in enumerate(masks["trials"]) if bits[i >> 3] >> (i & 7) & 1}
             self.assertEqual(decoded, set(self.loaded.eligibility([unit["id"]], "verified_stable")[0]))
-        common = explorer_core.population_spans(self.loaded, "object_outcome", [1, 2, 3], "verified_stable")["common_trials"]
-        self.assertEqual(common, len(self.loaded.eligibility([1, 2, 3], "verified_stable")[0]))
+        common = explorer_core.population_spans(self.loaded, "stimuli_on", list(UNITS), "verified_stable")["common_trials"]
+        self.assertEqual(common, len(self.loaded.eligibility(list(UNITS), "verified_stable")[0]))
+        self.assertEqual(common, 30)   # unit 5 is stable on the first 30 trials only
 
 
 class ExplorerServerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        path = write_synthetic_session_file(Path(self.temp.name))
-        self.sid = path.name.removesuffix("_session.nwb")
+        path, self.sid, _ = synthetic_session(self.temp.name)
         store = SessionStore([], [path], Path(self.temp.name) / "cache")
         self.app = Application(store, findings_dir=Path(self.temp.name) / "findings")
         self.servers = []
@@ -460,47 +452,49 @@ class ExplorerServerTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         summary = json.loads(body)
         self.assertEqual(summary["session_id"], self.sid)
-        status, headers, body = self.request(port, f"/api/explorer/table?session={self.sid}&alignment=object_outcome",
+        status, headers, body = self.request(port, f"/api/explorer/table?session={self.sid}&alignment=stimuli_on",
                                              headers={"Accept-Encoding": "gzip"})
         self.assertEqual(status, 200)
         table = json.loads(gzip.decompress(body) if headers.get("Content-Encoding") == "gzip" else body)
         self.assertGreater(table["n"], 0)
-        status, _, body = self.request(port, f"/api/explorer/raster?session={self.sid}&alignment=object_outcome&unit=1&policy=all_complete&lo=-1&hi=1")
+        status, _, body = self.request(port, f"/api/explorer/raster?session={self.sid}&alignment=stimuli_on&unit=3&policy=all_complete&lo=-1&hi=1")
         self.assertEqual(status, 200, body)
         self.assertEqual(json.loads(body)["n"], table["n"])
-        status, _, body = self.request(port, f"/api/explorer/raster?session={self.sid}&alignment=object_outcome&unit=1&policy=bogus&lo=-1&hi=1")
+        status, _, body = self.request(port, f"/api/explorer/raster?session={self.sid}&alignment=stimuli_on&unit=3&policy=bogus&lo=-1&hi=1")
         self.assertEqual(status, 400)
         status, _, _ = self.request(port, f"/api/explorer/table?session={self.sid}&alignment=nope")
         self.assertEqual(status, 404)
         status, _, body = self.request(port, f"/api/explorer/behavior?session={self.sid}")
         self.assertEqual(status, 200, body)
-        self.assertGreater(len(json.loads(body)["objects"]["t"]), 0)
-        status, _, body = self.request(port, f"/api/explorer/spiketrain?session={self.sid}&unit=1")
+        timeline = json.loads(body)
+        self.assertEqual(len(timeline["trials"]["id"]), 60)
+        self.assertGreater(len(timeline["events"]["t"]), 0)
+        status, _, body = self.request(port, f"/api/explorer/spiketrain?session={self.sid}&unit=3")
         self.assertEqual(status, 200, body)
         train = json.loads(body)
-        self.assertEqual((train["unit"]["id"], len(train["dt"])), (1, train["n"]))
+        self.assertEqual((train["unit"]["id"], len(train["dt"])), (SUA, train["n"]))
         self.assertGreater(train["n"], 0)
         status, _, _ = self.request(port, f"/api/explorer/spiketrain?session={self.sid}&unit=abc")
         self.assertEqual(status, 400)
-        status, _, body = self.request(port, "/api/findings", "POST", {"title": "demo", "state": {"session": self.sid, "unit": 1},
+        status, _, body = self.request(port, "/api/findings", "POST", {"title": "demo", "state": {"session": self.sid, "unit": 3},
                                                                        "evidence": {"session_id": self.sid}})
         self.assertEqual(status, 201, body)
         saved = json.loads(body)
         status, _, body = self.request(port, "/api/findings")
-        self.assertEqual([f["state"] for f in json.loads(body)["findings"]], [{"session": self.sid, "unit": 1}])
+        self.assertEqual([f["state"] for f in json.loads(body)["findings"]], [{"session": self.sid, "unit": 3}])
         self.request(port, f"/api/findings/{saved['id']}", "POST", {"delete": True})
         self.assertEqual(json.loads(self.request(port, "/api/findings")[2])["findings"], [])
-        status, _, body = self.request(port, f"/api/explorer/popspans?session={self.sid}&alignment=object_outcome&units=1,2&policy=all_complete")
+        status, _, body = self.request(port, f"/api/explorer/popspans?session={self.sid}&alignment=stimuli_on&units=3,5&policy=all_complete")
         self.assertEqual(status, 200, body)
         spans = json.loads(body)
         self.assertEqual(spans["n"], table["n"])
         status, _, body = self.request(port, f"/api/explorer/stability?session={self.sid}")
         self.assertEqual(status, 200, body)
-        self.assertIn("1", json.loads(body)["units"])
+        self.assertEqual(set(json.loads(body)["units"]), {"3", "4", "5"})
         status, _, body = self.request(port, f"/api/explorer/stable_roster?session={self.sid}")
         self.assertEqual(status, 200, body)
         rows = [rid for rid, span in zip(spans["row_id"], spans["span"]) if span and -1.4 >= span[0] and 1.4 <= span[1]]
-        fit = {"session_id": self.sid, "unit_ids": [1, 2, 3], "alignment": "object_outcome", "policy": "all_complete",
+        fit = {"session_id": self.sid, "unit_ids": list(UNITS), "alignment": "stimuli_on", "policy": "all_complete",
                "pre": -1, "post": 1, "bin": 0.05, "sigma": 0.02, "weight": "event", "method": "pca", "scaling": "zscore",
                "components": 2, "groups": [{"key": "all", "label": "all", "row_ids": rows}]}
         status, _, body = self.request(port, "/api/explorer/popfit", "POST", fit)
@@ -515,8 +509,7 @@ class ExplorerServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"explorer.js", body)
         status, _, body = self.request(port, "/classic/")
-        self.assertEqual(status, 200)
-        self.assertIn(b"/classic/app.js", body)
+        self.assertEqual(status, 404)   # the v0.1 workspace was for another task and is gone
 
     def test_lan_mode_requires_token(self):
         with self.assertRaises(ValueError):
@@ -552,7 +545,7 @@ class ExplorerServerTests(unittest.TestCase):
         node = {"Host": "mac.tail.ts.net:8443", "Origin": "https://mac.tail.ts.net:8443"}
         owner = {**node, "Tailscale-User-Login": "owner@example.com"}
         self.assertEqual(self.request(port, "/api/catalog", headers=owner)[0], 200)
-        status, headers, body = self.request(port, "/api/findings", "POST", {"title": "t", "state": {"session": self.sid, "unit": 1},
+        status, headers, body = self.request(port, "/api/findings", "POST", {"title": "t", "state": {"session": self.sid, "unit": 3},
                                                                             "evidence": {"session_id": self.sid}}, owner)
         self.assertEqual(status, 201, body)
         self.assertNotIn("Set-Cookie", headers)

@@ -10,14 +10,14 @@ import unittest
 
 from electro_gui.cli import add_arguments
 from electro_gui.configs import MAX_BYTES, discover_configs
-from imitation_phys.session_store import SessionStore
+from session_viewer.store import SessionStore
 from electro_gui.server import Application, make_server
-from imitation_phys.synthetic_session import write_synthetic_session_file
+
+from tests.fixtures import synthetic_session
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPLORER_JS = ROOT / "electro_gui" / "static" / "explorer.js"
 INDEX_HTML = ROOT / "electro_gui" / "static" / "index.html"
-DECK_CONFIGS = ROOT / "output" / "presentation"
 
 
 def write(path, value):
@@ -27,7 +27,7 @@ def write(path, value):
 
 
 def config(title, **extra):
-    return {"electro_gui_config": 1, "title": title, "state": {"align": "object_outcome", "unit": 893}, **extra}
+    return {"electro_gui_config": 1, "title": title, "state": {"align": "stimuli_on", "unit": 3}, **extra}
 
 
 class DiscoverTests(unittest.TestCase):
@@ -44,20 +44,20 @@ class DiscoverTests(unittest.TestCase):
         return [c["file"] for c in result["configs"]]
 
     def test_three_accepted_shapes(self):
-        write(self.root / "touch.json", config("Touch by role", hint="unit 893", group="Slide 6 · example neurons", slide=6, note="from the deck"))
-        write(self.root / "settings_export.json", {"tool": "electro_gui 0.2 explorer", "session_id": "s", "state": {"align": "trial_initiation", "unit": 5}})
-        write(self.root / "bare.json", {"align": "prey_capture", "unit": 315, "win": [-1, 1]})
+        write(self.root / "touch.json", config("Target on by task", hint="unit 3", group="Slide 6 · example neurons", slide=6, note="from the deck"))
+        write(self.root / "settings_export.json", {"tool": "electro_gui 0.2 explorer", "session_id": "s", "state": {"align": "fix_on", "unit": 5}})
+        write(self.root / "bare.json", {"align": "reward", "unit": 4, "win": [-1, 1]})
         result = discover_configs([self.root])
         self.assertEqual(result["errors"], [])
         by_file = {c["file"]: c for c in result["configs"]}
         self.assertEqual(by_file["touch.json"], {
-            "id": "touch.json", "file": "touch.json", "title": "Touch by role", "hint": "unit 893", "group": "Slide 6 · example neurons",
-            "slide": 6, "note": "from the deck", "state": {"align": "object_outcome", "unit": 893}})
+            "id": "touch.json", "file": "touch.json", "title": "Target on by task", "hint": "unit 3", "group": "Slide 6 · example neurons",
+            "slide": 6, "note": "from the deck", "state": {"align": "stimuli_on", "unit": 3}})
         export = by_file["settings_export.json"]
         self.assertEqual((export["title"], export["hint"], export["group"], export["slide"]), ("settings_export", "electro_gui 0.2 explorer", "", None))
-        self.assertEqual(export["state"], {"align": "trial_initiation", "unit": 5})
+        self.assertEqual(export["state"], {"align": "fix_on", "unit": 5})
         bare = by_file["bare.json"]
-        self.assertEqual((bare["title"], bare["state"]), ("bare", {"align": "prey_capture", "unit": 315, "win": [-1, 1]}))
+        self.assertEqual((bare["title"], bare["state"]), ("bare", {"align": "reward", "unit": 4, "win": [-1, 1]}))
         # A config without a title falls back to the file name.
         write(self.root / "untitled.json", {"electro_gui_config": 1, "state": {"align": "x"}})
         self.assertEqual({c["file"]: c["title"] for c in discover_configs([self.root])["configs"]}["untitled.json"], "untitled")
@@ -144,7 +144,7 @@ class ConfigServerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.tmp = Path(self.temp.name)
-        self.path = write_synthetic_session_file(self.tmp)
+        self.path, _, _ = synthetic_session(self.tmp)
         self.cfgs = self.tmp / "presentation"
         write(self.cfgs / "deck" / "electro_gui_configs" / "one.json", config("One", group="Slide 6 · example neurons", slide=6, hint="first"))
         write(self.cfgs / "deck" / "electro_gui_configs" / "broken.json", "{")
@@ -177,7 +177,7 @@ class ConfigServerTests(unittest.TestCase):
         listing = json.loads(data)
         self.assertEqual([c["id"] for c in listing["configs"]], ["deck/electro_gui_configs/one.json"])
         self.assertEqual(listing["configs"][0]["title"], "One")
-        self.assertEqual(listing["configs"][0]["state"], {"align": "object_outcome", "unit": 893})
+        self.assertEqual(listing["configs"][0]["state"], {"align": "stimuli_on", "unit": 3})
         self.assertEqual([e["file"] for e in listing["errors"]], ["deck/electro_gui_configs/broken.json"])
         # Edited and new files show up without a restart.
         write(self.cfgs / "deck" / "electro_gui_configs" / "one.json", config("One, renamed"))
@@ -205,7 +205,7 @@ class ConfigServerTests(unittest.TestCase):
         self.assertEqual(parser.parse_args(["--config-dir", "a", "--config-dir", "b/c"]).config_dir, ["a", "b/c"])
 
 
-# ---- drift guard: deck configs against the page's own state object ----------------------------
+# ---- drift guard: config states and templates against the page's own state object ----------------
 
 def js_defaults():
     """The ``DEFAULTS`` object literal of explorer.js as a Python dict."""
@@ -261,21 +261,28 @@ def state_problems(state, defaults):
 
 
 class ConfigDriftTests(unittest.TestCase):
-    def test_deck_configs_match_the_pages_state(self):
+    def test_templates_use_oculomotor_events_and_known_state_keys(self):
+        source = EXPLORER_JS.read_text()
+        block = source[source.index("const TEMPLATES = ["):source.index("const D = {")]
+        aligns = re.findall(r"align: '([a-z_]+)'", block)
+        self.assertEqual(aligns, ["stimuli_on", "stim_train", "reward", "fix_on", "pursuit_start"])
+        self.assertEqual(re.findall(r"color: '([a-z_]+)'", block), ["task", "microstim", "task", "rewarded", "task"])
+        self.assertNotRegex(block, r"unit:\s*\d")   # templates keep the current unit
         defaults = js_defaults()
-        result = discover_configs([DECK_CONFIGS])   # zero files (or no presentation/ yet) is fine
-        self.assertEqual(result["errors"], [], "unreadable deck config(s)")
-        for entry in result["configs"]:
-            with self.subTest(config=entry["file"]):
-                self.assertEqual(state_problems(entry["state"], defaults), [])
+        keys = set(re.findall(r"\b([a-z][A-Za-z]*):", block)) - {"name", "hint", "state", "e", "match", "occ", "label", "c", "k", "v", "id"}
+        self.assertEqual(keys - set(defaults), set())
 
     def test_guard_reads_the_real_defaults_and_flags_drift(self):
         defaults = js_defaults()
         self.assertTrue({"session", "unit", "align", "policy", "win", "cw", "filters", "markers", "gstyle", "mode", "roster", "pin", "nsort"} <= set(defaults))
         self.assertEqual(defaults["nsort"], "loading:0")
-        self.assertEqual(defaults["align"], "object_outcome")
-        good = {"session": "s", "unit": 893, "align": "prey_capture", "win": [-2.2, 0.6], "cw": [-0.5, 0], "bin": 0.02, "sigma": 0,
-                "filters": [{"k": "world", "v": ["PM"]}], "markers": [{"e": "object_visible_onset"}], "color": "role", "style": None, "panel": None, "pin": None}
+        self.assertEqual(defaults["align"], "fix_on")
+        self.assertEqual((defaults["color"], defaults["style"]), ("task", None))
+        self.assertEqual(defaults["tdrFactors"], ["task", "microstim"])
+        self.assertNotIn("worldCoding", defaults)
+        self.assertIs(defaults["bt"], True)
+        good = {"session": "s", "unit": 3, "align": "stimuli_on", "win": [-1, 1.5], "cw": [0.05, 0.25], "bin": 0.02, "sigma": 0,
+                "filters": [{"k": "task", "v": ["pursuit"]}], "markers": [{"e": "fix_on"}], "color": "microstim", "style": None, "panel": None, "pin": None}
         self.assertEqual(state_problems(good, defaults), [])
         for bad, needle in (({"alignn": "x"}, "unknown state key"), ({"win": "wide"}, "state.win"), ({"win": [1, -1]}, "state.win"),
                             ({"unit": "893"}, "state.unit"), ({"filters": {"k": "a"}}, "state.filters"), ({"filters": [{"k": "a"}]}, "filter"),

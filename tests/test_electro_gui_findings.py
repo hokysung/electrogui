@@ -15,10 +15,11 @@ import zlib
 
 from electro_gui import __version__, server as server_module
 from electro_gui.configs import discover_configs, parse_config
-from imitation_phys.session_store import SessionStore
+from session_viewer.store import SessionStore
 from electro_gui.findings import FindingStore
 from electro_gui.server import Application, make_server
-from imitation_phys.synthetic_session import write_synthetic_session_file
+
+from tests.fixtures import SUA, synthetic_session
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "electro_gui" / "static"
@@ -43,15 +44,15 @@ def evidence(**extra):
     return {"schema": 1, "mode": "raster", "session_id": SID, "source": {"sha256": "ab" * 32, "size_bytes": 1234},
             "unit": {"id": 315, "peak_channel": 28, "area": "ACC", "quality": "sua", "n_spikes": 4321},
             "support": {"events": 224, "trials": 120},
-            "groups": [{"label": "PP", "panel": None, "events": 112, "trials": 60, "rate_hz": 16.9, "rate_sem_hz": 0.8, "n": 112},
-                       {"label": "PM", "panel": None, "events": 112, "trials": 60, "rate_hz": 21.8, "rate_sem_hz": 0.9, "n": 112}],
+            "groups": [{"label": "sham", "panel": None, "events": 112, "trials": 60, "rate_hz": 16.9, "rate_sem_hz": 0.8, "n": 112},
+                       {"label": "stim", "panel": None, "events": 112, "trials": 60, "rate_hz": 21.8, "rate_sem_hz": 0.9, "n": 112}],
             **extra}
 
 
 def payload(**extra):
-    return {"title": "Unit 315 fires more before PM prey touches", "note": "joystick not controlled here",
-            "tags": ["world", "joystick"], "status": "checking",
-            "state": {"session": SID, "unit": 315, "align": "prey_capture", "win": [-3, 1], "cw": [-1, 0]},
+    return {"title": "Unit 315 fires more after target onset in pursuit trials", "note": "eye position not controlled here",
+            "tags": ["task", "eye"], "status": "checking",
+            "state": {"session": SID, "unit": 315, "align": "stimuli_on", "win": [-1, 1.5], "cw": [0.05, 0.25]},
             "evidence": evidence(), "thumbnail": data_url(tiny_png()), **extra}
 
 
@@ -73,7 +74,7 @@ class FindingStoreTests(unittest.TestCase):
         self.assertEqual(self.store.thumbnail(fid), tiny_png())
         on_disk = json.loads((self.root / f"{fid}.json").read_text())
         self.assertEqual((on_disk["electro_gui_config"], on_disk["finding"], on_disk["status"], on_disk["tags"], on_disk["saved_on"]),
-                         (1, 1, "checking", ["world", "joystick"], "imac"))
+                         (1, 1, "checking", ["task", "eye"], "imac"))
         self.assertEqual(on_disk["state"], payload()["state"])
         self.assertEqual(on_disk["evidence"], evidence())
         self.assertNotIn("has_thumbnail", on_disk)
@@ -98,10 +99,10 @@ class FindingStoreTests(unittest.TestCase):
     def test_only_title_note_tags_and_status_can_change(self):
         fid = self.store.create(payload())["id"]
         before = json.loads((self.root / f"{fid}.json").read_text())
-        changed = self.store.update(fid, {"note": "  the joystick-only model still leaves a PM effect  ", "tags": "world, PM touch,  world ",
+        changed = self.store.update(fid, {"note": "  the eye-only model still leaves a pursuit effect  ", "tags": "task, pursuit stim,  task ",
                                           "status": "supported"}, updated_on="macmini")
         self.assertEqual((changed["note"], changed["tags"], changed["status"], changed["updated_on"]),
-                         ("the joystick-only model still leaves a PM effect", ["world", "PM touch"], "supported", "macmini"))
+                         ("the eye-only model still leaves a pursuit effect", ["task", "pursuit stim"], "supported", "macmini"))
         self.assertTrue(changed["updated_at"])
         self.assertEqual((changed["state"], changed["evidence"], changed["saved_at"]), (before["state"], before["evidence"], before["saved_at"]))
         for frozen in ({"state": {"session": SID, "unit": 1}}, {"evidence": {}}, {"note": "x", "saved_at": "now"}):
@@ -169,8 +170,7 @@ class FindingRoutesTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        path = write_synthetic_session_file(Path(self.temp.name))
-        self.sid = path.name.removesuffix("_session.nwb")
+        path, self.sid, _ = synthetic_session(self.temp.name)
         self.root = Path(self.temp.name) / "findings"
         self.app = Application(SessionStore([], [path], Path(self.temp.name) / "cache"), findings_dir=self.root)
         self.addCleanup(self.app.close)
@@ -194,7 +194,7 @@ class FindingRoutesTests(unittest.TestCase):
         return result
 
     def body(self, **extra):
-        state = {"session": self.sid, "unit": 1, "align": "object_outcome"}
+        state = {"session": self.sid, "unit": SUA, "align": "stimuli_on"}
         return payload(state=state, evidence=evidence(session_id=self.sid), **extra)
 
     def test_save_list_edit_picture_and_delete(self):
@@ -211,7 +211,7 @@ class FindingRoutesTests(unittest.TestCase):
         self.assertEqual((status, [f["id"] for f in json.loads(raw)["findings"]]), (200, [fid]))
         status, kind, raw = self.request(port, f"/api/findings/{fid}/thumbnail")
         self.assertEqual((status, kind, raw), (200, "image/png", picture))
-        status, _, raw = self.request(port, f"/api/findings/{fid}", "POST", {"note": "next: joystick-only model", "status": "supported"})
+        status, _, raw = self.request(port, f"/api/findings/{fid}", "POST", {"note": "next: eye-only model", "status": "supported"})
         self.assertEqual(status, 200, raw)
         self.assertEqual(json.loads(self.request(port, f"/api/findings/{fid}")[2])["status"], "supported")
         status, _, raw = self.request(port, f"/api/findings/{fid}", "POST", {"state": {"session": self.sid, "unit": 2}})
@@ -354,7 +354,7 @@ def pop_evidence(**extra):
     roster = [{"id": i, "peak_channel": 10 + i, "area": "ACC", "quality": "sua", "n_spikes": 1000 + i} for i in (1, 2, 3, 4)]
     return {"schema": 1, "mode": "population", "session_id": SID, "source": {"sha256": "ab" * 32, "size_bytes": 1234}, "roster": roster,
             "support": {"events": 300, "trials": 150, "neurons": 4, "common_trials": 140},
-            "groups": [{"label": "PP", "panel": None, "events": 150, "trials": 75}, {"label": "MM", "panel": None, "events": 150, "trials": 75}],
+            "groups": [{"label": "sham", "panel": None, "events": 150, "trials": 75}, {"label": "stim", "panel": None, "events": 150, "trials": 75}],
             "fit": {"method": "pca", "components": 3, "rank": 3, "dropped_constant_units": [], "converged": True, "warnings": [],
                     "explained_variance_ratio": [0.41, 0.22, 0.1], "component_r2": [0.41, 0.22, 0.1]}, **extra}
 
@@ -370,7 +370,7 @@ class CompareEvidenceTests(unittest.TestCase):
         tiny = evidence(groups=[{**evidence()["groups"][0], "rate_hz": 16.9004}, evidence()["groups"][1]])   # below display precision
         self.assertEqual(self.compare(evidence(), tiny), [])
 
-    def test_a_rebuilt_nwb_and_a_renumbered_unit_are_named_first(self):
+    def test_a_rebuilt_session_file_and_a_renumbered_unit_are_named_first(self):
         now = evidence(source={"sha256": "cd" * 32, "size_bytes": 1234},
                        unit={"id": 315, "peak_channel": 30, "area": "ACC", "quality": "mua", "n_spikes": 4100})
         diff = self.compare(evidence(), now)
@@ -382,17 +382,17 @@ class CompareEvidenceTests(unittest.TestCase):
                          f"It was saved from session {SID}; the figure shows sub-Other_ses-2026_01_02.")
 
     def test_changed_support_counts_and_rates_are_listed_per_group(self):
-        pp, pm = evidence()["groups"]
+        sham, stim = evidence()["groups"]
         now = evidence(support={"events": 221, "trials": 119},
-                       groups=[pp, {**pm, "events": 109, "trials": 59, "rate_hz": 21.2}, {"label": "MM", "panel": None, "events": 5, "trials": 5}])
+                       groups=[sham, {**stim, "events": 109, "trials": 59, "rate_hz": 21.2}, {"label": "no train", "panel": None, "events": 5, "trials": 5}])
         self.assertEqual(self.compare(evidence(), now), [
             "Support changed: events 224 → 221; trials 120 → 119.",
-            "“PM”: 112 → 109 events, 60 → 59 trials, 21.80 → 21.20 spikes/s in the count window.",
-            "Groups that were not in the saved figure: “MM”."])
-        self.assertEqual(self.compare(evidence(), evidence(groups=[pp])), ["Group “PM” is not in the redrawn figure."])
-        panelled = [{**pp, "panel": "touch"}, {**pp, "panel": "avoid", "events": 3}]
+            "“stim”: 112 → 109 events, 60 → 59 trials, 21.80 → 21.20 spikes/s in the count window.",
+            "Groups that were not in the saved figure: “no train”."])
+        self.assertEqual(self.compare(evidence(), evidence(groups=[sham])), ["Group “stim” is not in the redrawn figure."])
+        panelled = [{**sham, "panel": "memory_saccade"}, {**sham, "panel": "pursuit", "events": 3}]
         self.assertEqual(self.compare(evidence(groups=panelled), evidence(groups=[panelled[0], {**panelled[1], "events": 4}])),
-                         ["“PP · avoid”: 3 → 4 events."])
+                         ["“sham · pursuit”: 3 → 4 events."])
 
     def test_population_neurons_and_fit_changes(self):
         saved = pop_evidence()
@@ -415,12 +415,12 @@ class CompareEvidenceTests(unittest.TestCase):
 @unittest.skipUnless(js_engine(), "no JavaScript engine (node or jsc)")
 class RestoreAndSearchTests(unittest.TestCase):
     def test_state_changes_ignore_key_order_and_name_what_the_page_replaced(self):
-        saved = {"session": SID, "unit": 893, "align": "prey_capture", "markers": [{"id": "m1", "e": "object_visible_onset", "match": "object"}],
+        saved = {"session": SID, "unit": 893, "align": "stimuli_on", "markers": [{"id": "m1", "e": "fix_on", "match": "trial"}],
                  "gstyle": {"a": {"c": "#fff", "d": 1}}, "retired_knob": 3}
-        same = {"session": SID, "unit": 893, "align": "prey_capture", "markers": [{"match": "object", "e": "object_visible_onset", "id": "m1"}],
+        same = {"session": SID, "unit": 893, "align": "stimuli_on", "markers": [{"match": "trial", "e": "fix_on", "id": "m1"}],
                 "gstyle": {"a": {"d": 1, "c": "#fff"}}, "retired_knob": 3}
         self.assertEqual(run_core("out(C.stateChanges(input[0], input[1]));", [saved, same]), [])
-        replaced = {**same, "unit": 1, "align": "object_outcome", "markers": []}
+        replaced = {**same, "unit": 1, "align": "reward", "markers": []}
         del replaced["retired_knob"]
         changes = run_core("out(C.stateChanges(input[0], input[1]));", [saved, replaced])
         self.assertEqual([c["key"] for c in changes], ["unit", "align", "markers", "retired_knob"])
@@ -429,8 +429,8 @@ class RestoreAndSearchTests(unittest.TestCase):
 
     def test_search_needs_every_word_somewhere_in_the_finding(self):
         finding = {**payload(), "id": "x", "saved_on": "imac", "saved_at": "2026-10-08T20:00:00Z"}
-        cases = {"": True, "PM prey": True, "joystick": True, "unit 315": True, "ch 28": True, "acc": True, "2026_01_01": True,
-                 "prey capture": True, "imac": True, "checking": True, "supported": False, "unit 893": False, "PM avoid": False}
+        cases = {"": True, "pursuit target": True, "eye": True, "unit 315": True, "ch 28": True, "acc": True, "2026_01_01": True,
+                 "stimuli on": True, "imac": True, "checking": True, "supported": False, "unit 893": False, "pursuit reward": False}
         got = run_core("out(input[1].map(q => C.findingMatches(input[0], q)));", [finding, list(cases)])
         self.assertEqual(dict(zip(cases, got)), cases)
 

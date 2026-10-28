@@ -10,6 +10,9 @@ from electro_gui.exports import export_csv, export_json, export_membership, expo
 from electro_gui.population import compute_population
 
 
+TASKS = ("fixation", "memory_saccade", "pursuit")
+
+
 class PopulationFixture:
     session_id = "sub-test_ses-population"
     duration_s = 250.
@@ -17,12 +20,12 @@ class PopulationFixture:
     def __init__(self):
         self.units = [{"id": i, "area": "acc", "quality": "SUA"} for i in range(6)]
         self.trials = [{"id": i, "start": i * 10., "stop": i * 10. + 9., "complete": True,
-                        "world": ("PP", "PM", "MM")[i % 3], "block_id": i // 3} for i in range(24)]
-        self.rows = [{"row_id": i, "trial": i, "t": i * 10. + 5., "event": "trial_initiation",
-                      "world": t["world"], "block_id": t["block_id"], "within_ephys_recording": True,
+                        "task": TASKS[i % 3], "block_id": i // 3} for i in range(24)]
+        self.rows = [{"row_id": i, "trial": i, "t": i * 10. + 5., "event": "fix_on",
+                      "task": t["task"], "block_id": t["block_id"], "within_ephys_recording": True,
                       "within_sync_fit_window": True} for i, t in enumerate(self.trials)]
-        self.fields = [{"key": "world", "type": "category", "values": ["PP", "PM", "MM"], "availability": "available"}]
-        self.alignments = ["trial_initiation"]
+        self.fields = [{"key": "task", "type": "category", "values": sorted(TASKS), "availability": "available"}]
+        self.alignments = ["fix_on"]
         rng = np.random.default_rng(4)
         self._spikes = {}
         for unit in range(6):
@@ -44,7 +47,7 @@ class PopulationFixture:
 
 
 def request():
-    return {"session_id": PopulationFixture.session_id, "unit_ids": list(range(6)), "alignment": "trial_initiation",
+    return {"session_id": PopulationFixture.session_id, "unit_ids": list(range(6)), "alignment": "fix_on",
             "pre": -.8, "post": .8, "bin": .05, "sigma": 0, "count_window": [0, .5],
             "stability": "all_complete", "method": "pca", "scaling": "zscore", "components": 3}
 
@@ -107,7 +110,7 @@ class PopulationTests(unittest.TestCase):
         self.assertNotEqual(checked["status"], "error", checked)
         self.loaded.units[0]["area"] = "acc"
         self.loaded._spikes = {i: np.array([]) for i in range(6)}
-        with self.assertRaisesRegex(ValueError, "nonconstant"):
+        with self.assertRaisesRegex(ValueError, "units vary"):
             compute_population(self.loaded, request())
 
 

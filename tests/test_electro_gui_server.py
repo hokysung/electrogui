@@ -13,17 +13,17 @@ import unittest
 from unittest import mock
 
 from electro_gui import cli, server as server_module
-from imitation_phys.session_store import SessionStore
+from session_viewer.store import SessionStore
 from electro_gui.server import Application, code_changed_since, make_server
-from imitation_phys.synthetic_session import write_synthetic_session_file
+
+from tests.fixtures import SUA, synthetic_session
 
 
 class ServerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.path = write_synthetic_session_file(Path(self.temp.name))
-        self.sid = self.path.name.removesuffix("_session.nwb")
-        store = SessionStore([], [self.path], Path(self.temp.name) / "cache")
+        self.path, self.sid, self.root = synthetic_session(self.temp.name)
+        store = SessionStore([self.root], [], Path(self.temp.name) / "cache")
         self.app = Application(store)
         self.server = make_server(self.app, port=0)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -64,14 +64,27 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(json.loads(data)["sessions"][0]["id"], self.sid)
         _, load = self.job({"action": "load", "session_id": self.sid})
         self.assertEqual(load["status"], "done", load)
-        self.assertEqual(len(load["result"]["units"]), 6)
-        request = {"action": "unit", "session_id": self.sid, "unit_id": 1, "alignment": "object_outcome",
+        self.assertEqual(len(load["result"]["units"]), 3)
+        request = {"action": "unit", "session_id": self.sid, "unit_id": SUA, "alignment": "stimuli_on",
+                   "recipe": {"shared": {"mode": "all", "rules": []}, "facet": "none", "group_by": "task", "split_by": "none",
+                              "overlap": "exclude", "strata": "none", "gate": "none",
+                              "cohorts": [{"id": "all", "name": "all", "mode": "all",
+                                           "rules": [{"field": "task", "op": "present"}]}]},
                    "pre": -.5, "post": .5, "bin": .05, "sigma": 0, "count_window": [0, .5], "stability": "all_complete"}
         job_id, computed = self.job(request)
         self.assertEqual(computed["status"], "done", computed)
         result = computed["result"]
         self.assertTrue(result["rows"])
-        self.assertEqual(result["provenance"]["computation_identity"]["source_nwb"]["sha256"], load["result"]["source"]["sha256"])
+        self.assertEqual(sorted(g["color_key"] for g in result["groups"]), ["memory_saccade", "pursuit_memory"])
+        self.assertEqual(result["provenance"]["computation_identity"]["source"]["sha256"], load["result"]["source"]["sha256"])
+        self.assertIn("session_viewer_repository", result["provenance"])
+        self.assertNotIn("imitation_phys_repository", result["provenance"])
+        # the target-locked burst of unit 3 (50-150 ms after stimuli_on) is in the PSTH
+        times = result["times"]
+        mean = result["groups"][0]["mean"]
+        burst = [m for t, m in zip(times, mean) if 0.05 <= t < 0.15]
+        before = [m for t, m in zip(times, mean) if -0.5 <= t < -0.1]
+        self.assertGreater(min(burst), 3 * max(before))
         status, downloaded = self.get(f"/api/jobs/{job_id}/export?format=json")
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(downloaded)["settings"], request)

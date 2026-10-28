@@ -24,8 +24,8 @@ class MinimalLoaded:
     duration_s = 20.0
     units = [{"id": 1, "area": "ACC", "quality": "good", "n_spikes": 0}]
     fields = [
-        {"key": "world", "type": "category", "values": ["PP", "PM", "MM"]},
-        {"key": "intention", "type": "category", "values": ["PP", "PM", "MM", "NA"]},
+        {"key": "task", "type": "category", "values": ["fixation", "memory_saccade", "pursuit"]},
+        {"key": "target_label", "type": "category", "values": ["left", "right", "NA"]},
     ]
 
     def __init__(self, trials, rows):
@@ -98,20 +98,20 @@ class ElectroGuiRegressions(unittest.TestCase):
 
     def test_count_window_overrides_stale_recipe_and_runs_bridge_iti(self):
         trials = [
-            {"id": 1, "start": 0.0, "stop": 1.0, "complete": True, "world": "PP", "eligible": True},
-            {"id": 2, "start": 2.0, "stop": 3.0, "complete": True, "world": "PP", "eligible": True},
-            {"id": 3, "start": 4.0, "stop": 5.0, "complete": True, "world": "PP", "eligible": False},
+            {"id": 1, "start": 0.0, "stop": 1.0, "complete": True, "task": "pursuit", "eligible": True},
+            {"id": 2, "start": 2.0, "stop": 3.0, "complete": True, "task": "pursuit", "eligible": True},
+            {"id": 3, "start": 4.0, "stop": 5.0, "complete": True, "task": "pursuit", "eligible": False},
         ]
-        rows = [{"row_id": 7, "trial": 2, "t": 2.5, "event": "cue", "next_outcome_t": 2.8, "world": "PP", "intention": "PP"}]
-        recipe = {"shared": {"mode": "all", "rules": []}, "cohorts": [{"id": "A", "name": "A", "mode": "all", "rules": [{"field": "world", "op": "eq", "value": "PP"}]}], "gate": "before_next_outcome", "window": [0.0, 1.0], "overlap": "exclude", "strata": "none", "facet": "none", "group_by": "cohort", "split_by": "none"}
-        selected, support, provenance = prepare_rows(MinimalLoaded(trials, rows), {"alignment": "cue", "pre": -0.1, "post": 0.1, "bin": 0.1, "sigma": 0, "count_window": [0.0, 0.1], "stability": "all_complete", "recipe": recipe}, [1])
+        rows = [{"row_id": 7, "trial": 2, "t": 2.5, "event": "stimuli_on", "trial_end_t": 3.0, "task": "pursuit"}]
+        recipe = {"shared": {"mode": "all", "rules": []}, "cohorts": [{"id": "A", "name": "A", "mode": "all", "rules": [{"field": "task", "op": "eq", "value": "pursuit"}]}], "gate": "before_trial_end", "window": [0.0, 1.0], "overlap": "exclude", "strata": "none", "facet": "none", "group_by": "cohort", "split_by": "none"}
+        selected, support, provenance = prepare_rows(MinimalLoaded(trials, rows), {"alignment": "stimuli_on", "pre": -0.1, "post": 0.1, "bin": 0.1, "sigma": 0, "count_window": [0.0, 0.1], "stability": "all_complete", "recipe": recipe}, [1])
         self.assertEqual([r["row_id"] for r in selected], [7])
         self.assertEqual(provenance["recipe"]["window"], [0.0, 0.1])
         self.assertEqual(support["runs"], 1)
 
     def test_missing_category_does_not_match_literal_na(self):
-        recipe = {"shared": {"mode": "all", "rules": []}, "cohorts": [{"id": "A", "name": "A", "mode": "all", "rules": [{"field": "intention", "op": "eq", "value": "NA"}]}], "overlap": "exclude", "strata": "none", "facet": "none", "group_by": "cohort", "split_by": "none", "gate": "none"}
-        rows = [{"row_id": 1, "intention": None}, {"row_id": 2, "intention": "NA"}]
+        recipe = {"shared": {"mode": "all", "rules": []}, "cohorts": [{"id": "A", "name": "A", "mode": "all", "rules": [{"field": "target_label", "op": "eq", "value": "NA"}]}], "overlap": "exclude", "strata": "none", "facet": "none", "group_by": "cohort", "split_by": "none", "gate": "none"}
+        rows = [{"row_id": 1, "target_label": None}, {"row_id": 2, "target_label": "NA"}]
         result = select(rows, recipe, MinimalLoaded([], []))
         self.assertEqual([r["row_id"] for r in result["rows"]], [2])
 

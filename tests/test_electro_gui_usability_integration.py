@@ -3,6 +3,7 @@ import json
 import unittest
 
 from tests import test_electro_gui_server as base
+from tests.fixtures import SUA
 
 
 class UsabilityServerTests(unittest.TestCase):
@@ -12,8 +13,8 @@ class UsabilityServerTests(unittest.TestCase):
     job = base.ServerTests.job
 
     def test_preview_retains_exports_and_annotation_preserves_science(self):
-        request = {"action": "unit", "session_id": self.sid, "unit_id": 1,
-                   "alignment": "object_outcome", "pre": -.5, "post": .5,
+        request = {"action": "unit", "session_id": self.sid, "unit_id": SUA,
+                   "alignment": "stimuli_on", "pre": -.5, "post": .5,
                    "bin": .05, "sigma": 0, "count_window": [0, .5],
                    "stability": "all_complete", "test": "none"}
         base_id, original = self.job(request)
@@ -42,7 +43,7 @@ class UsabilityServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(raw)["annotations"]["layers"][0]["time"], .2)
         self.assertEqual(json.loads(raw)["settings"]["annotations"][0]["time"], .2)
-        self.assertTrue(json.loads(raw)["provenance"]["annotation_identity"]["computation_code"])
+        self.assertTrue(json.loads(raw)["provenance"]["annotation_identity"]["code"])
         self.assertEqual(json.loads(raw)["provenance"]["computation_key"],
                          original["result"]["provenance"]["computation_key"])
         status, raw = self.get(f"/api/jobs/{base_id}/export?format=json")

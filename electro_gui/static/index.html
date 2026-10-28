@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="electro_gui — raster and PSTH explorer for assembled NWB sessions">
+  <meta name="description" content="electro_gui — raster and PSTH explorer for exported session.h5 sessions">
   <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#101217" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -102,7 +102,7 @@
         <header><h2><span data-only="raster">Display</span><span data-only="population">Model &amp; display</span></h2><button class="link" type="button" id="resetDisplay">Reset</button></header>
         <div class="model" data-only="population">
           <div class="seg-field"><span>Method</span><div class="seg" data-key="method"><button data-v="pca">PCA</button><button data-v="ica">ICA</button><button data-v="fa">FA</button><button data-v="tdr" title="Targeted dimensionality reduction: one axis per task factor">TDR</button></div></div>
-          <div class="knob" data-method="tdr"><div class="knob-head"><span>TDR factors</span></div><button class="pick" id="tdrBtn" type="button" aria-haspopup="dialog" title="Choose the TDR factors and how world is coded"><strong id="tdrLabel"></strong><span class="pick-label">▾</span></button>
+          <div class="knob" data-method="tdr"><div class="knob-head"><span>TDR factors</span></div><button class="pick" id="tdrBtn" type="button" aria-haspopup="dialog" title="Choose the TDR factors"><strong id="tdrLabel"></strong><span class="pick-label">▾</span></button>
             <div class="knob-head" style="margin-top:8px"><span>TDR window <small>(blank = display window)</small></span><span class="nums"><input type="number" id="tdrLoN" step="0.1" aria-label="TDR window start (s)"><i>to</i><input type="number" id="tdrHiN" step="0.1" aria-label="TDR window end (s)"><i>s</i></span></div></div>
           <div class="seg-field"><span>Scaling</span><div class="seg" data-key="scaling"><button data-v="zscore">z-score</button><button data-v="center">center</button></div></div>
           <div class="knob" data-not-method="tdr"><div class="knob-head"><span>Components <small>(type up to 50)</small></span><span class="nums"><input type="number" id="ncompN" min="2" max="50" step="1" aria-label="Number of components"></span></div><input type="range" id="ncomp" min="2" max="10" step="1" aria-label="Number of components, 2 to 10"></div>
@@ -154,12 +154,12 @@
           </header>
           <div class="bt-body" id="btBody">
             <div class="bt-legend" aria-hidden="true">
-              <span><svg viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" class="g-touch"/></svg>touched</span>
-              <span><svg viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" class="g-avoid"/></svg>passed</span>
-              <span><svg viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" class="g-avoid"/><path d="M3.8 3.8l4.4 4.4M3.8 8.2l4.4-4.4" class="g-x"/></svg>incorrect</span>
-              <span><svg viewBox="0 0 22 12"><rect x="2" y="3.5" width="18" height="5" class="g-avoid"/></svg>bar</span>
-              <span class="bt-legend-note">outline = displayed colour · line = time on screen · shading = world</span>
-              <span class="bt-worlds"><i style="--c:#2b8a3e"></i>PP<i style="--c:#6741d9"></i>PM<i style="--c:#e03131"></i>MM</span>
+              <span><svg viewBox="0 0 12 12"><path d="M6 2l4 8H2z" class="g-stim"/></svg>stim train</span>
+              <span><svg viewBox="0 0 12 12"><path d="M6 2l4 8H2z" class="g-sham"/></svg>sham</span>
+              <span><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.5" class="g-reward"/></svg>reward</span>
+              <span><svg viewBox="0 0 12 12"><path d="M3.8 3.8l4.4 4.4M3.8 8.2l4.4-4.4" class="g-x"/></svg>unrewarded</span>
+              <span class="bt-legend-note">ticks = events, coloured by kind · shading = task</span>
+              <span class="bt-tasks" id="btTasks"></span>
             </div>
             <div class="bt-fig" id="btFig"></div>
           </div>

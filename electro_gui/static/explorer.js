@@ -21,61 +21,48 @@
 
   // --------------------------------------------------------------- names
   const EVENT_NAMES = {
-    object_outcome: 'object outcome (any)', object_touched: 'object touched (prey captured + predator touched)',
-    object_avoided: 'object avoided (prey missed + predator avoided)', prey_capture: 'prey captured', prey_miss: 'prey missed',
-    predator_contact: 'predator touched', predator_avoid: 'predator avoided', object_visible_onset: 'object visible',
-    object_fully_visible: 'object fully visible', object_offset: 'object offset',
-    joystick_move_onset: 'joystick onset', joystick_move_offset: 'joystick offset', joystick_peak: 'joystick peak',
-    joystick_reversal: 'joystick reversal', agent_move_onset: 'agent move onset', agent_move_offset: 'agent move offset',
-    agent_align_object: 'agent aligned with object', trial_initiation: 'trial initiation', goal_release: 'goal release',
-    reward_valve_onset: 'reward valve on', reward_valve_offset: 'reward valve off', reward_command: 'reward command',
-    trial_display_start: 'trial display start', trial_display_end: 'trial display end', trial_outcome: 'trial outcome',
-    mworks_trial_start: 'MWorks trial start', mworks_trial_end: 'MWorks trial end', gaze_on_object_onset: 'gaze on object',
-    gaze_on_object_offset: 'gaze leaves object', saccade_onset: 'saccade onset', saccade_offset: 'saccade offset',
-    blink_onset: 'blink onset', blink_offset: 'blink offset', fixation_acquired: 'fixation acquired',
-    start_block_contact_onset: 'start block contact', start_block_contact_offset: 'start block release',
-    goal_contact_rewarded: 'goal contact (rewarded)', goal_contact_empty: 'goal contact (empty)',
-    punishment_cue_onset: 'punishment cue on', sound_onset: 'sound onset', token_change: 'token change',
+    fix_on: 'fixation point on', fix: 'fixation acquired', stimuli_on: 'target on', stimuli_off: 'target off',
+    memory: 'memory period', response_wait: 'response window', response: 'response',
+    pursuit_on: 'pursuit target on', pursuit_start: 'pursuit start', pursuit_end: 'pursuit end', pursuit_off: 'pursuit target off',
+    wait_fix_off: 'wait for fixation off', feedback: 'feedback', reward: 'reward', failure: 'failure', break_fix: 'fixation break',
+    microstim: 'stim train onset', sham_microstim: 'sham train onset', stim_train: 'stim or sham train onset',
+    induced_saccade: 'stim-induced saccade', sham_induced_saccade: 'sham-period saccade', stim_blink: 'stim blink',
+    sham_blink: 'sham blink', photodiode_on: 'photodiode on', start: 'MWorks trial start', end: 'MWorks trial end',
+    trial_start: 'trial start (first event)', trial_end: 'trial end (last event)',
   };
   const eventLabel = e => EVENT_NAMES[e] || C.humanize(e);
-  const PINNED_ALIGN = ['object_outcome', 'object_touched', 'object_avoided', 'prey_capture', 'predator_contact', 'prey_miss', 'predator_avoid',
-    'object_visible_onset', 'trial_initiation', 'joystick_move_onset', 'goal_release', 'reward_valve_onset'];
-  const OBJECT_EVENTS = /^(object_|prey_|predator_(contact|avoid)|gaze_on_object)/;
+  const PINNED_ALIGN = ['fix_on', 'stimuli_on', 'pursuit_start', 'response', 'reward', 'stim_train', 'microstim', 'sham_microstim'];
   function eventCategory(e) {
-    if (/^(sync_|state_|preset_|block_type|stimuli_changed|predator_trial_flag|mworks_trial_duration|report$|task_start)|_(hue|image)_change$/.test(e)) return 'Technical';
-    if (/^(object_|prey_|predator_(contact|avoid))/.test(e)) return 'Object & outcome';
-    if (/^(joystick|agent)/.test(e)) return 'Movement';
-    if (/^(reward|token|cumulative|punishment|sound)/.test(e)) return 'Reward & feedback';
-    if (/^(saccade|blink|eyelink|gaze|fixation)/.test(e)) return 'Eye';
+    if (/(microstim|stim_train|^stim_|^sham_|induced_saccade)/.test(e)) return 'Stim';
+    if (/^(stimuli|pursuit_on|pursuit_off|memory|photodiode)/.test(e)) return 'Stimulus';
+    if (/^(reward|feedback|failure)/.test(e)) return 'Reward';
+    if (/^(fix|response|pursuit|saccade|break_fix|wait_fix|blink)/.test(e)) return 'Eye & response';
     return 'Trial';
   }
-  const CATEGORY_ORDER = ['Object & outcome', 'Trial', 'Movement', 'Reward & feedback', 'Eye', 'Technical'];
+  const CATEGORY_ORDER = ['Stim', 'Stimulus', 'Eye & response', 'Reward', 'Trial'];
 
-  const COMMON_FIELDS = ['world', 'role', 'action', 'outcome', 'intention', 'correct', 'order', 'previous_role',
-    'previous_outcome', 'next_role', 'trial_error_free', 'before_first_error', 'is_first_object', 'is_last_object', 'success'];
-  const QUICK_FIELDS = ['world', 'role', 'action'];
+  const COMMON_FIELDS = ['task', 'microstim', 'sham', 'rewarded'];
+  const QUICK_FIELDS = ['task', 'microstim', 'sham', 'rewarded'];
   function fieldGroup(col) {
-    if (COMMON_FIELDS.includes(col.key)) return 'Common';
+    if (COMMON_FIELDS.includes(col.key) || col.key === 'success' || col.key === 'block_id') return 'Task';
     if (col.relative) return 'Timing (s from event)';
-    if (/^(previous|next)_/.test(col.key) || col.key === 'trial_changed_strategy') return 'History';
-    if (col.key.startsWith('object.')) return 'Object details';
-    if (col.key.startsWith('trial.')) return 'Trial details';
-    return 'Task & trial';
+    if (/^previous_/.test(col.key)) return 'Previous trial';
+    if (/^microstim|stim/.test(col.key)) return 'Stimulation';
+    return 'Advanced';
   }
-  const FIELD_GROUP_ORDER = ['Common', 'History', 'Task & trial', 'Timing (s from event)', 'Object details', 'Trial details'];
+  const FIELD_GROUP_ORDER = ['Task', 'Stimulation', 'Previous trial', 'Timing (s from event)', 'Advanced'];
 
   // -------------------------------------------------------------- colours
+  const TASK_COLORS = {fixation: '#495057', memory_saccade: '#1971c2', pursuit: '#2f9e44', reveal: '#f08c00',
+    overlap_saccade: '#9c36b5', freeview: '#868e96', pursuit_memory: '#c2255c'};   // electro_gui/analysis.py TASK_COLORS
   const SEM = {
-    world: {PP: '#56B4E9', PM: '#999999', MM: '#E69F00'},          // imitation_utils/plot_conventions.py BLOCK_TYPE_COLORS (2026-10-01)
-    intention: {PP: '#56B4E9', PM: '#999999', MM: '#E69F00', NA: '#6f6f6f'},
-    role: {prey: '#2b8a3e', predator: '#e03131'},
-    action: {touch: '#1c7ed6', avoid: '#f08c00'},
-    outcome: {prey_capture: '#2b8a3e', prey_miss: '#8fcf9c', predator_contact: '#e03131', predator_avoid: '#f4a3a3'},
+    task: TASK_COLORS,
+    microstim: {true: '#e8590c', false: '#495057'},
+    sham: {true: '#495057', false: '#e8590c'},
+    rewarded: {true: '#2f9e44', false: '#e03131'},
   };
-  ['previous_trial_intention', 'next_trial_intention'].forEach(k => { SEM[k] = SEM.intention; });
-  ['previous_role', 'next_role'].forEach(k => { SEM[k] = SEM.role; });
-  ['previous_action', 'next_action'].forEach(k => { SEM[k] = SEM.action; });
-  ['previous_outcome', 'next_outcome'].forEach(k => { SEM[k] = SEM.outcome; });
+  SEM.previous_task = SEM.task;
+  SEM.previous_rewarded = SEM.rewarded;
   const PALETTE = ['#1c7ed6', '#f08c00', '#2b8a3e', '#e03131', '#7048e8', '#0c8599', '#d6336c', '#5c940d', '#495057', '#e8590c'];
   const RAMP = ['#74c0fc', '#339af0', '#1c7ed6', '#1864ab', '#0b3d74'];
   const MISSING_COLOR = '#adb5bd';
@@ -110,12 +97,12 @@
   // ---------------------------------------------------------------- state
   const RASTER_MIN = 80, RASTER_MAX = 700, RASTER_FIT_MIN = 120, PSTH_MIN = 80, PSTH_MAX = 500;
   const DEFAULTS = {
-    session: null, unit: null, align: 'object_outcome', policy: 'verified_stable',
+    session: null, unit: null, align: 'fix_on', policy: 'verified_stable',
     win: [-1.5, 1], cw: [-0.5, 0], bin: 0.02, sigma: 0.04, weight: 'event', err: 'sem',
-    filters: [], color: 'role', style: 'action', panel: null, qbins: 3, hidden: [],
+    filters: [], color: 'task', style: null, panel: null, qbins: 3, hidden: [],
     sort: 'session', dir: 1, grouped: true, markers: [], refs: [], medians: true,
     tick: 'line', rasterH: 260, rasterFit: true, psthH: 205, ylock: null, bars: true, unitQ: ['sua', 'mua'], unitArea: [], gstyle: {},
-    mode: 'raster', roster: [], method: 'pca', scaling: 'zscore', ncomp: 3, tdrFactors: ['world', 'action', 'joystick_direction'], tdrWin: null, worldCoding: 'linear', dims: '2', heatNorm: 'z',
+    mode: 'raster', roster: [], method: 'pca', scaling: 'zscore', ncomp: 3, tdrFactors: ['task', 'microstim'], tdrWin: null, dims: '2', heatNorm: 'z',
     nsort: 'loading:0', axes: [0, 1, 2], heatGroup: null, cloud: false, cloudAlpha: 0.3, cloudZero: true, cloudFit: 'traj',
     bt: true, btN: 16, pin: null, yoke: false, popSplit: 0.5,
   };
@@ -123,26 +110,18 @@
   let S = clone(DEFAULTS);
 
   const TEMPLATES = [
-    {name: 'Touch: predator vs prey', hint: 'unit 893 style · touches aligned to contact, colour = role, style = world', state: {
-      align: 'object_outcome', filters: [{k: 'action', v: ['touch']}], color: 'role', style: 'world', panel: null,
-      win: [-2.2, 0.6], cw: [-0.5, 0], bin: 0.02, sigma: 0.05,
-      markers: [{e: 'object_visible_onset', match: 'object', occ: 'nearest', label: 'object visible', c: INK}]}},
-    {name: 'Prey touch: world × previous object', hint: 'unit 315 style · PP/PM prey captures, style = previous object', state: {
-      align: 'prey_capture', filters: [{k: 'world', v: ['PP', 'PM']}], color: 'world', style: 'previous_role', panel: null,
-      win: [-3, 1], cw: [-1, 0], bin: 0.02, sigma: 0.06,
-      markers: [{e: 'object_visible_onset', match: 'object', occ: 'nearest', label: 'prey visible', c: INK}]}},
-    {name: 'World × role × action', hint: 'every object outcome, one panel per world', state: {
-      align: 'object_outcome', filters: [], color: 'role', style: 'action', panel: 'world', win: [-1.5, 1], cw: [-0.5, 0]}},
-    {name: 'PM touches: did the trial go wrong?', hint: 'unit 893 panel B · PM touches, style = error-free trial', state: {
-      align: 'object_outcome', filters: [{k: 'world', v: ['PM']}, {k: 'action', v: ['touch']}], color: 'role',
-      style: 'trial_error_free', panel: null, win: [-2.2, 0.6], cw: [-0.5, 0]}},
-    {name: 'Trial initiation by world', hint: 'initiation-aligned, first object visible marked', state: {
-      align: 'trial_initiation', filters: [], color: 'world', style: null, panel: null, win: [-1, 3], cw: [0, 1],
-      markers: [{e: 'object_visible_onset', match: 'trial', occ: 'first_after', label: 'first object visible', c: INK}]}},
-    {name: 'Prey visible, sorted by touch time', hint: 'visibility-aligned prey, rows sorted by when the touch came', state: {
-      align: 'object_visible_onset', filters: [{k: 'role', v: ['prey']}], color: 'world', style: 'action', panel: null,
-      win: [-0.5, 2.5], cw: [0, 0.5], sort: 'marker:m1',
-      markers: [{id: 'm1', e: 'object_outcome', match: 'object', occ: 'first_after', label: 'outcome', c: INK}]}},
+    {name: 'Target on, by task', hint: 'aligned to target onset, colour = task', state: {
+      align: 'stimuli_on', filters: [], color: 'task', style: null, panel: null, win: [-1, 1.5], cw: [0.05, 0.25],
+      markers: [{e: 'fix_on', match: 'trial', occ: 'last_before', label: 'fixation point on', c: INK}]}},
+    {name: 'Stim vs sham at train onset', hint: 'stim and sham trains pooled, colour = stimulated', state: {
+      align: 'stim_train', filters: [], color: 'microstim', style: null, panel: null, win: [-0.5, 1.0], cw: [0, 0.3]}},
+    {name: 'Reward, by task', hint: 'aligned to reward, colour = task', state: {
+      align: 'reward', filters: [], color: 'task', style: null, panel: null, win: [-1, 1], cw: [0, 0.5]}},
+    {name: 'Fixation on, rewarded vs not', hint: 'aligned to the fixation point, colour = rewarded', state: {
+      align: 'fix_on', filters: [], color: 'rewarded', style: null, panel: null, win: [-0.5, 2], cw: [0, 0.5],
+      markers: [{e: 'stimuli_on', match: 'trial', occ: 'first_after', label: 'target on', c: INK}]}},
+    {name: 'Pursuit start', hint: 'aligned to pursuit start, colour = task', state: {
+      align: 'pursuit_start', filters: [], color: 'task', style: null, panel: null, win: [-1, 1.5], cw: [0, 0.5]}},
   ];
 
   const D = {
@@ -178,7 +157,6 @@
     s.roster = Array.isArray(s.roster) ? [...new Set(s.roster.filter(Number.isInteger))].sort((a, b) => a - b) : [];
     s.ncomp = Number.isInteger(s.ncomp) ? clamp(s.ncomp, 2, MAX_NCOMP) : DEFAULTS.ncomp;
     s.tdrFactors = Array.isArray(s.tdrFactors) ? [...new Set(s.tdrFactors.filter(k => typeof k === 'string'))].slice(0, 10) : clone(DEFAULTS.tdrFactors);
-    s.worldCoding = s.worldCoding === 'steps' ? 'steps' : 'linear';
     s.tdrWin = Array.isArray(s.tdrWin) && s.tdrWin.length === 2 && s.tdrWin.every(Number.isFinite) && s.tdrWin[0] < s.tdrWin[1] ? s.tdrWin : null;
     s.popSplit = Number.isFinite(s.popSplit) ? clamp(s.popSplit, 0.15, 0.85) : DEFAULTS.popSplit;
     s.axes = Array.isArray(s.axes) && s.axes.length === 3 && s.axes.every(Number.isInteger) ? s.axes : clone(DEFAULTS.axes);
@@ -329,7 +307,7 @@
     D.probes.clear(); D.probeErrors.clear(); D.probeShown = null;
     D.behavior = null; D.behaviorError = null; D.btC = null; D.btLayout = null; D.trains.clear(); D.trainErrors.clear();
     $('sessionSelect').value = sid;
-    showLoading(`Opening ${sid}`, 'The first open of a session verifies the whole NWB file — about 1–2 minutes for a 3 GB recording. After that, units, alignments and knobs respond immediately.');
+    showLoading(`Opening ${sid}`, 'The first open of a session reads and fingerprints its session.h5. After that, units, alignments and knobs respond immediately.');
     try {
       const job = await getJSON('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'load', session_id: sid})});
       const t0 = Date.now();
@@ -365,18 +343,22 @@
     S.roster = S.roster.filter(id => D.unitMap.has(id));
     if (!D.units.some(u => u.id === S.unit)) S.unit = (unitList()[0] || D.units[0]).id;
     S.align = fallbackAlign(summary.alignments, S.align);
-    // A saved marker on an event this session no longer offers (e.g. the hidden object_spawn) would 404.
-    S.markers = S.markers.filter(m => [m.e, m.end].every(e => !e || e === 'object_outcome' || summary.events.includes(e)));
+    // A saved marker on an event this session does not offer would 404.
+    S.markers = S.markers.filter(m => [m.e, m.end].every(e => !e || unionAlignments(summary).includes(e) || summary.events.includes(e)));
   }
 
-  // The alignment to draw: the wanted one if this session has events on it, else object_outcome, else
-  // trial_initiation.  A session from another task (phys-analysis imports) lists object_outcome with no events
-  // at all, so an alignment only counts when it has events; failing all three, the first one that does.
+  // The alignment to draw: the wanted one if this session has events on it, else fix_on; an alignment only
+  // counts when it has events, so failing both, the first one that does.
   function fallbackAlign(alignments, wanted) {
     const has = key => alignments.some(a => a.key === key && a.n > 0);
-    for (const key of [wanted, 'object_outcome', 'trial_initiation']) if (has(key)) return key;
+    for (const key of [wanted, 'fix_on']) if (has(key)) return key;
     const any = alignments.find(a => a.n > 0);
-    return any ? any.key : 'object_outcome';
+    return any ? any.key : 'fix_on';
+  }
+  // Pooled alignments (stim_train = microstim + sham_microstim): listed as alignments, not as recorded events.
+  function unionAlignments(summary) {
+    if (!summary) return [];
+    return summary.alignments.filter(a => a.n > 0 && !summary.events.includes(a.key)).map(a => a.key);
   }
 
   // --------------------------------------------------------------- model
@@ -834,7 +816,7 @@
       $('bars').innerHTML = barsSVG(M, side ? barsW : Math.min(Math.max(260, width), 140 + 70 * M.visible.length), h);
       $('bars').style.marginTop = side ? `${barsTop}px` : '';
     } else $('bars').innerHTML = '';
-    $('foot').innerHTML = `Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · rows are events; half-open count window; ${S.policy === 'verified_stable' ? 'stability from the exact NWB (v0.1 rule, 0.4 s guard)' : 'no stability filter'} · electro_gui ${VERSION}`;
+    $('foot').innerHTML = `Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · rows are events; half-open count window; ${S.policy === 'verified_stable' ? 'stability from the session file (post-sorting check, 0.4 s guard)' : 'no stability filter'} · electro_gui ${VERSION}`;
   }
 
   function renderSupport(M) {
@@ -1005,7 +987,7 @@
         return `<button type="button" class="chip${on.has(l.key) ? ' on' : ''}${c ? '' : ' zero'}" data-qf="${esc(key)}" data-level="${esc(l.key)}"${color ? ` style="--c:${color}"` : ''}>${esc(l.key === C.MISSING ? 'missing' : C.formatLevel(key, l.value))} <small>${c}</small></button>`;
       }).join('') + '</div></div>');
     }
-    host.innerHTML = parts.join('') || '<p class="pop-note" style="padding:0">No task/object fields for this alignment; use “Filter on any field”.</p>';
+    host.innerHTML = parts.join('') || '<p class="pop-note" style="padding:0">No task fields for this alignment; use “Filter on any field”.</p>';
   }
 
   function filterText(f, T) {
@@ -1035,7 +1017,7 @@
 
   function renderMarkers() {
     $('markerList').innerHTML = S.markers.map(m => {
-      const where = m.match === 'object' ? 'same object' : 'same trial';
+      const where = 'same trial';
       const occ = {nearest: 'nearest', first_after: 'first after', last_before: 'last before', all: 'all', first: 'first in trial', last: 'last in trial'}[m.occ] || m.occ;
       return `<div class="marker${m.off ? ' off' : ''}" style="--c:${paint(m.c)}"><i class="${m.end ? 'band' : ''}"></i><div><b>${esc(m.label || eventLabel(m.e))}</b><small>${esc(eventLabel(m.e))}${m.end ? ` → ${esc(eventLabel(m.end))}` : ''} · ${where} · ${occ}</small></div>` +
         `<button type="button" data-medit="${esc(m.id)}" title="Edit" aria-label="Edit marker">✎</button><button type="button" data-mdel="${esc(m.id)}" title="Remove" aria-label="Remove marker">×</button></div>`;
@@ -1046,13 +1028,13 @@
   function renderPresets() {
     const T = D.tables.get(S.align);
     const avail = new Set(D.summary ? D.summary.events : []);
-    const mk = [['object_visible_onset', 'object', 'nearest', 'object visible'], ['joystick_move_onset', 'trial', 'last_before', 'joystick onset'],
-      ['trial_initiation', 'trial', 'nearest', 'trial initiation'], ['goal_release', 'trial', 'nearest', 'goal release'],
-      ['reward_valve_onset', 'trial', 'first_after', 'reward'], ['object_outcome', 'object', 'first_after', 'outcome']];
-    $('markerPresets').innerHTML = mk.filter(([e]) => (avail.has(e) || e === 'object_outcome') && !S.markers.some(m => m.e === e))
+    const mk = [['fix_on', 'trial', 'first_after', 'fixation point on'], ['stimuli_on', 'trial', 'first_after', 'target on'],
+      ['response', 'trial', 'first_after', 'response'], ['reward', 'trial', 'first_after', 'reward'],
+      ['microstim', 'trial', 'first_after', 'stim train onset']];
+    $('markerPresets').innerHTML = mk.filter(([e]) => avail.has(e) && !S.markers.some(m => m.e === e))
       .map(([e, match, occ, label]) => `<button type="button" class="preset" data-mp="${e}|${match}|${occ}|${label}">+ ${esc(label)}</button>`).join('');
-    const gp = [['world', null, 'world'], ['role', 'action', 'role × action'], ['world', 'previous_role', 'world × previous object'],
-      ['role', 'world', 'role × world'], ['correct', null, 'correct / error'], ['order', null, 'object #']];
+    const gp = [['task', null, 'task'], ['microstim', null, 'stim / no stim'], ['rewarded', null, 'rewarded / not'],
+      ['task', 'microstim', 'task × stim'], ['previous_task', null, 'previous task']];
     $('groupPresets').innerHTML = T ? gp.filter(([a, b]) => T.byKey.has(a) && (!b || T.byKey.has(b)))
       .map(([a, b, label]) => `<button type="button" class="preset" data-gp="${a}|${b || ''}">${esc(label)}</button>`).join('') : '';
   }
@@ -1211,7 +1193,7 @@
   }
 
   function eventOptions(selected, {none = null} = {}) {
-    const evs = (D.summary ? D.summary.events : []).concat(['object_outcome']);
+    const evs = (D.summary ? D.summary.events : []).concat(unionAlignments(D.summary));
     let html = none ? `<option value="">${esc(none)}</option>` : '';
     for (const cat of CATEGORY_ORDER) {
       const list = [...new Set(evs.filter(e => eventCategory(e) === cat))].sort((a, b) => eventLabel(a).localeCompare(eventLabel(b)));
@@ -1221,9 +1203,7 @@
   }
   function newMarkerId() { let k = 1; while (S.markers.some(m => m.id === `m${k}`)) k++; return `m${k}`; }
   function addMarker(e, match, occ, label) {
-    const T = D.tables.get(S.align);
-    const objRows = T ? T.objectCodes.filter(c => c >= 0).length : 0;
-    const m = {id: newMarkerId(), e, match: match || (OBJECT_EVENTS.test(e) && objRows > (T ? T.n / 2 : 0) ? 'object' : 'trial'), occ: occ || 'nearest',
+    const m = {id: newMarkerId(), e, match: 'trial', occ: occ || 'nearest',
       label: label || eventLabel(e), c: MARKER_COLORS[S.markers.length % MARKER_COLORS.length]};
     S.markers.push(m);
     renderStructure(); changed({data: true});
@@ -1231,17 +1211,16 @@
   }
   function openMarkerEditor(anchor, id) {
     let m = S.markers.find(x => x.id === id);
-    if (!m) m = addMarker('object_visible_onset');
+    if (!m) m = addMarker(D.summary && D.summary.events.includes('stimuli_on') ? 'stimuli_on' : (D.summary && D.summary.events[0]) || 'fix_on');
     const seg = (key, opts) => `<div class="seg" data-mkey="${key}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" class="${m[key] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     const draw = () => {
       $('popover').innerHTML = popHead('Marker') + `<div class="pop-body"><div class="editor">` +
         `<label class="row"><span>Event</span><select id="mkEvent">${eventOptions(m.e)}</select></label>` +
-        `<div class="row"><span>Match rows by</span>${seg('match', [['object', 'same object'], ['trial', 'same trial']])}</div>` +
         `<div class="row"><span>Which occurrence</span>${seg('occ', [['nearest', 'nearest'], ['first_after', 'first after'], ['last_before', 'last before'], ['all', 'all']])}</div>` +
         `<label class="row"><span>Shade until (optional band)</span><select id="mkEnd">${eventOptions(m.end || '', {none: 'no band — tick only'})}</select></label>` +
         `<label class="row"><span>Label</span><input type="text" id="mkLabel" value="${esc(m.label || '')}" placeholder="${esc(eventLabel(m.e))}"></label>` +
         `<div class="row"><span>Colour</span><div class="swatches">${MARKER_COLORS.map(c => `<button type="button" class="swatch${m.c === c ? ' on' : ''}" data-sw="${c}" style="--c:${paint(c)}" aria-label="colour"></button>`).join('')}</div></div>` +
-        `<p class="pop-note" style="padding:0">Each raster row gets a dot at this event's time in the same ${m.match === 'object' ? 'object' : 'trial'}; the PSTH shows the median. Markers never change which events are counted.</p>` +
+        `<p class="pop-note" style="padding:0">Each raster row gets a dot at this event's time in the same trial; the PSTH shows the median. Markers never change which events are counted.</p>` +
         `</div></div><div class="pop-foot"><button type="button" class="small" data-mdel="${esc(m.id)}">Remove</button><button type="button" class="small" data-mtoggle>${m.off ? 'Show' : 'Hide'}</button><button type="button" class="primary" data-close>Done</button></div>`;
       placePop();
       const pop = $('popover');
@@ -1341,7 +1320,7 @@
     await applyView({state});
     return true;
   }
-  // A config is slow to open in three places: reading the file (it may sit in a cloud folder), verifying a session's NWB,
+  // A config is slow to open in three places: reading the file (it may sit in a cloud folder), verifying a session file,
   // fetching a raster. The first and last leave the old figure up as if nothing had happened, so say what is going on
   // from the moment a file is chosen, and put the figure back when nothing was applied.
   async function openConfigFile(file) {
@@ -1383,7 +1362,7 @@
     return D.model && D.model.rows.length ? '' : 'there is no figure to save';
   }
   /**
-   * What a finding rests on, read off the figure as drawn: the data's identity (session, NWB checksum, the unit's
+   * What a finding rests on, read off the figure as drawn: the data's identity (session, file checksum, the unit's
    * channel, area, quality and spike count, or every neuron's), the support line and each shown group's events,
    * trials and count-window rate (population: the fit's diagnostics).  It runs when a finding is saved and again
    * when it is reopened, and C.compareEvidence names every difference.  Nothing here is new arithmetic.
@@ -1396,7 +1375,7 @@
       not_stable_or_complete: M.excl[1] + M.excl[2], window_leaves_stable_run: M.excl[3],
       in_hidden_groups: M.grouping.groups.filter(g => g.hidden).reduce((a, g) => a + g.rows.length, 0),
       yoked_trials: M.yoke ? {first: M.yoke.from, last: M.yoke.to} : null};
-    const out = {schema: 1, mode: S.mode, session_id: D.summary.session_id, source: {sha256: src.sha256 || null, size_bytes: src.size_bytes ?? null},
+    const out = {schema: 1, mode: S.mode, session_id: D.summary.session_id, source: {sha256: src.sha256 || null, size_bytes: src.size_bytes ?? src.size ?? null},
       title: D.figMeta.title, subtitle: D.figMeta.subtitle, alignment: S.align, policy: S.policy, window_s: S.win.slice(),
       count_window_s: S.cw.slice(), weighting: S.weight, support};
     if (!pop) {
@@ -1446,11 +1425,11 @@
     const anchor = $('saveBtn').offsetParent ? $('saveBtn') : $('menuBtn');
     openPop(anchor, popHead('Save finding') + `<form class="editor finding-form" id="findingForm">` +
       `<label class="row"><span>Title</span><input type="text" id="fTitle" maxlength="200" required value="${esc(draft.title)}"></label>` +
-      `<label class="row"><span>Notes <small>optional</small></span><textarea id="fNote" rows="5" maxlength="20000" placeholder="Why it matters · what this view does not control (the joystick?) · what to check next">${esc(draft.note)}</textarea></label>` +
-      `<label class="row"><span>Tags <small>optional, separated by commas</small></span><input type="text" id="fTags" autocomplete="off" value="${esc(draft.tags)}" placeholder="world, joystick"></label>` +
+      `<label class="row"><span>Notes <small>optional</small></span><textarea id="fNote" rows="5" maxlength="20000" placeholder="Why it matters · what this view does not control (eye movements?) · what to check next">${esc(draft.note)}</textarea></label>` +
+      `<label class="row"><span>Tags <small>optional, separated by commas</small></span><input type="text" id="fTags" autocomplete="off" value="${esc(draft.tags)}" placeholder="memory saccade, stim"></label>` +
       (used.length ? `<div class="chips tag-picks">${used.map(t => `<button type="button" class="chip" data-addtag="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : '') +
       `<div class="row"><span>Status <small>your judgement, not a test</small></span><div class="seg" id="fStatus">${STATUSES.map(st => `<button type="button" data-st="${st}" class="${st === draft.status ? 'on' : ''}">${st}</button>`).join('')}</div></div>` +
-      `<p class="pop-note" style="padding:0">Keeps a picture of the figure, every setting and the numbers it shows: events, trials and count-window rate per group, the unit's channel and the NWB checksum. Reopening it redraws the figure and says whether any of them has changed. Notes, tags and status can be edited later under Findings.</p>` +
+      `<p class="pop-note" style="padding:0">Keeps a picture of the figure, every setting and the numbers it shows: events, trials and count-window rate per group, the unit's channel and the session file's checksum. Reopening it redraws the figure and says whether any of them has changed. Notes, tags and status can be edited later under Findings.</p>` +
       `<div class="pop-foot" style="padding:0;border:0"><button type="button" class="small" data-close>Cancel</button><button type="submit" class="primary" id="fSave">Save finding</button></div></form>`, {wide: true});
     const form = $('findingForm');
     const read = () => ({title: $('fTitle').value, note: $('fNote').value, tags: $('fTags').value,
@@ -1501,7 +1480,7 @@
       `<div class="row"><span>File <small>its picture, ${esc(saved.id)}.png, is beside it</small></span><code class="file-path" id="fPath">${esc(path)}</code></div>` +
       `<div class="saved-actions"><button type="button" class="small" id="fCopy">Copy path</button>` +
       (saved.can_reveal ? `<button type="button" class="small" id="fReveal">Show in Finder</button>` : '') + `</div>` +
-      (saved.can_reveal ? '' : `<p class="pop-note" style="padding:0">This page is not open on the Mac that holds the file. In Finder, press ⇧⌘G and paste the path (Dropbox keeps the same folder on each Mac).</p>`) +
+      (saved.can_reveal ? '' : `<p class="pop-note" style="padding:0">The file is on the machine running electro_gui; copy the path to open it there.</p>`) +
       `<div class="pop-foot" style="padding:0;border:0"><a class="small" href="/findings/#${id}">Notes &amp; edit</a><button type="button" class="primary" data-close>Done</button></div></div>`;
     $('fCopy').addEventListener('click', async () => {
       toast(await copyText(path, $('fPath')) ? 'Path copied.' : 'Could not copy; the path is selected, press ⌘C.');
@@ -1573,11 +1552,11 @@
   function stateText(c) {
     const show = v => (v === null || v === undefined ? 'none' : typeof v === 'object' ? JSON.stringify(v).slice(0, 80) : String(v));
     if (c.now === undefined) return `the setting “${c.key}” is not used by this version of electro_gui (saved as ${show(c.saved)})`;
-    if (c.key === 'unit') return `unit ${c.saved} is not in this NWB; the figure shows unit ${c.now}`;
+    if (c.key === 'unit') return `unit ${c.saved} is not in this session; the figure shows unit ${c.now}`;
     if (c.key === 'align') return `the alignment ${eventLabel(c.saved)} is not in this session; the figure is aligned to ${eventLabel(c.now)}`;
     if (c.key === 'roster') {
       const gone = (c.saved || []).filter(id => !(c.now || []).includes(id));
-      return `neuron${gone.length > 1 ? 's' : ''} ${gone.join(', ')} ${gone.length > 1 ? 'are' : 'is'} not in this NWB and left the population`;
+      return `neuron${gone.length > 1 ? 's' : ''} ${gone.join(', ')} ${gone.length > 1 ? 'are' : 'is'} not in this session and left the population`;
     }
     if (c.key === 'markers') {
       const gone = (c.saved || []).filter(m => !(c.now || []).some(n => n.id === m.id)).map(m => m.label || eventLabel(m.e));
@@ -1601,7 +1580,7 @@
     else if (o.failed) { tone = 'bad'; body = `<p>The saved figure could not be redrawn: ${esc(o.failed)}.</p>${items.length ? `<ul>${items.join('')}</ul>` : ''}`; }
     else if (!items.length) {
       tone = 'ok';
-      body = `<p>✓ Same data, same numbers: the NWB file, the ${pop ? 'neurons' : 'unit'} and every group's events, trials and ${pop ? 'fit' : 'count-window rate'} match what was saved.</p>`;
+      body = `<p>✓ Same data, same numbers: the session file, the ${pop ? 'neurons' : 'unit'} and every group's events, trials and ${pop ? 'fit' : 'count-window rate'} match what was saved.</p>`;
     } else {
       tone = lost.length ? 'bad' : 'warn';
       body = `<p>${items.length} difference${items.length > 1 ? 's' : ''} from when it was saved:</p><ul>${items.join('')}</ul>`;
@@ -1621,7 +1600,7 @@
 
   function applyTemplate(t) {
     const keep = {session: S.session, unit: S.unit, policy: S.policy, unitQ: S.unitQ, unitArea: S.unitArea, tick: S.tick, rasterH: S.rasterH, rasterFit: S.rasterFit, psthH: S.psthH, bars: S.bars, err: S.err,
-      mode: S.mode, roster: S.roster, method: S.method, scaling: S.scaling, ncomp: S.ncomp, tdrFactors: S.tdrFactors, tdrWin: S.tdrWin, worldCoding: S.worldCoding, dims: S.dims, heatNorm: S.heatNorm, nsort: S.nsort, axes: S.axes, popSplit: S.popSplit};
+      mode: S.mode, roster: S.roster, method: S.method, scaling: S.scaling, ncomp: S.ncomp, tdrFactors: S.tdrFactors, tdrWin: S.tdrWin, dims: S.dims, heatNorm: S.heatNorm, nsort: S.nsort, axes: S.axes, popSplit: S.popSplit};
     S = sanitize({...clone(DEFAULTS), ...keep, ...clone(t.state)});
     afterBigChange();
     toast(`Template: ${t.name}`);
@@ -1655,7 +1634,7 @@
       `<button type="button" class="item" data-exp="psth"><span class="main"><b>PSTH · CSV</b><small>mean and SEM per group and time bin</small></span></button>` +
       `<button type="button" class="item" data-exp="rows"><span class="main"><b>Rows · CSV</b><small>one row per event: group, spike count and rate in the count window, marker times, fields</small></span></button>` +
       `<button type="button" class="item" data-exp="json"><span class="main"><b>Settings & provenance · JSON</b><small>source file, SHA256, unit, alignment, filters, knobs</small></span></button>` +
-      `</div><div class="pop-note">Formal block-permutation tests and population PCA/ICA/FA are in the <a href="/classic/">classic workspace</a>.</div>`;
+      `</div>`;
     openPop($('exportBtn').offsetParent ? $('exportBtn') : $('menuBtn'), html);
   }
   /** GET /api/health, or null from a server that predates it. */
@@ -1709,7 +1688,6 @@
       `<label class="row"><span>Session</span><select id="menuSession">${D.catalog.map(s => `<option value="${esc(s.id)}"${s.id === S.session ? ' selected' : ''}>${esc(shortSession(s.id))}</option>`).join('')}</select></label>` +
       `<div class="row"><span>Theme</span><div class="seg" id="themeSeg">${['auto', 'light', 'dark'].map(t => `<button type="button" data-theme="${t}" class="${theme === t ? 'on' : ''}">${t}</button>`).join('')}</div></div>` +
       `<p class="pop-note" style="padding:0"><b>Shortcuts</b> — ← / → previous / next unit · drag across the PSTH to set the count window · click a legend entry to hide a group, double-click to show only it.</p>` +
-      `<p class="pop-note" style="padding:0"><a href="/classic/">Classic workspace (v0.1)</a> — unit block-permutation tests and provenance-bound job exports; its Population tab is the population view.</p>` +
       `<p class="pop-note" style="padding:0">${D.summary ? `${esc(D.summary.session_id)} · ${D.summary.counts.units} units · ${D.summary.counts.trials} trials<br><code>${esc(D.summary.source.path || '')}</code>` : ''}</p>` +
       `</div></div>`;
     openPop($('menuBtn'), html);
@@ -1737,7 +1715,7 @@
   };
   const tdrLabel = key => { const T = D.tables.get(S.align), c = T && key && T.byKey.get(key); return c ? c.label : key; };
   /** Number of axes the fit will have: one per TDR factor, else the component knob. */
-  const nComp = () => (S.method === 'tdr' ? S.tdrFactors.length + (S.worldCoding === 'steps' && S.tdrFactors.includes('world') ? 1 : 0) : S.ncomp);
+  const nComp = () => (S.method === 'tdr' ? S.tdrFactors.length : S.ncomp);
   /** The TDR window actually requested: the display window unless the user narrowed it. */
   const tdrWindow = () => { const w = S.tdrWin || S.win; return [Math.max(w[0], S.win[0]), Math.min(w[1], S.win[1])]; };
   function renderTdrFactors() {
@@ -1745,19 +1723,14 @@
   }
   function openTdrPicker() {
     const T = D.tables.get(S.align);
-    const cols = T ? T.columns.filter(c => c.kind === 'cat' && c.levels.length <= 6 && !S.tdrFactors.includes(c.key)) : [];
+    const cols = T ? T.columns.filter(c => c.kind === 'cat' && c.levels.length <= 8 && !S.tdrFactors.includes(c.key)) : [];
     const chip = (k, on) => `<button type="button" class="chip${on ? ' on' : ''}" data-tdr="${esc(k)}" aria-pressed="${on}">${esc(tdrLabel(k))}</button>`;
-    const hasWorld = S.tdrFactors.includes('world');
-    const wc = (v, main, sub) => `<button type="button" data-wc="${v}" class="${S.worldCoding === v ? 'on' : ''}" aria-pressed="${S.worldCoding === v}"><b>${main}</b><small>${sub}</small></button>`;
     const html = popHead('TDR factors') + `<div class="pop-body">` +
-      `<div class="pop-group">World coding${hasWorld ? '' : ' · add world below to use it'}</div>` +
-      `<div class="tdr-wc${hasWorld ? '' : ' off'}"><div class="seg" id="worldCoding">${wc('linear', 'Linear · 1 axis', 'PP −1, PM 0, MM +1')}${wc('steps', 'Steps · 2 axes', 'PP→PM and PM→MM')}</div>` +
-      `<p class="pop-note">${S.worldCoding === 'steps' ? 'Two axes whose coefficients are PM − PP and MM − PM, so a PM-specific effect gets its own axis. Needs PP, PM and MM all in the selection.' : 'One axis for the PP→MM trend; it assumes PM sits between PP and MM.'}</p></div>` +
       `<div class="pop-group">Factors · ${nComp()} axes · tap to add or remove</div>` +
       `<div class="chips tdr-chips">${S.tdrFactors.map(k => chip(k, true)).join('')}${cols.map(c => chip(c.key, false)).join('')}</div></div>` +
       `<div class="pop-foot"><button type="button" class="small" data-tdr-reset>Defaults</button><button type="button" class="primary" data-close>Done</button></div>`;
     const body = $('popover').hidden ? null : $('popover').querySelector('.pop-body');
-    const scroll = body && $('popover').querySelector('#worldCoding') ? body.scrollTop : 0;
+    const scroll = body && $('popover').querySelector('.tdr-chips') ? body.scrollTop : 0;
     openPop($('tdrBtn'), html, {wide: true});
     const fresh = $('popover').querySelector('.pop-body');
     if (fresh) fresh.scrollTop = scroll;
@@ -1932,7 +1905,7 @@
     return {session_id: S.session, unit_ids: S.roster.slice(), alignment: S.align, policy: S.policy,
       pre: S.win[0], post: S.win[1], bin: S.bin, sigma: S.sigma, weight: S.weight, method: S.method,
       scaling: S.scaling, components: nComp(),
-      ...(S.method === 'tdr' ? {factors: S.tdrFactors.slice(), tdr_window: tdrWindow(), world_coding: S.worldCoding} : {}),
+      ...(S.method === 'tdr' ? {factors: S.tdrFactors.slice(), tdr_window: tdrWindow()} : {}),
       groups: M.grouping.groups.map(g => ({key: g.key, label: g.label, row_ids: g.rows.map(i => M.T.rowId[i])}))};
   }
   function prepareFit(fit) {
@@ -2458,7 +2431,7 @@
     mountPopFigure(fig, svg, layout);
     D.figMeta = {title: $('title').textContent, subtitle: $('subtitle').textContent, width};
     drawCursor();
-    $('foot').innerHTML = `Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · condition means per group, ${S.method === 'tdr' ? `one axis per factor: regression of single-event rates on the factors (world coded ${S.worldCoding === 'steps' ? 'as PP→PM and PM→MM steps' : 'PP −1, PM 0, MM +1'}; other categories effect-coded), read at each factor's peak time, denoised in the leading PC subspace and orthogonalised by QR` : `one joint ${S.method.toUpperCase()} basis (sklearn, as the classic workspace) · component signs set so each component's largest loading is positive`} · electro_gui ${VERSION}`;
+    $('foot').innerHTML = `Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · condition means per group, ${S.method === 'tdr' ? `one axis per factor: regression of single-event rates on the factors (categories and booleans effect-coded, numbers z-scored), read at each factor's peak time, denoised in the leading PC subspace and orthogonalised by QR` : `one joint ${S.method.toUpperCase()} basis (sklearn) · component signs set so each component's largest loading is positive`} · electro_gui ${VERSION}`;
   }
   function rerenderPopFigure() {
     const M = D.popModel, fit = D.popFit;
@@ -2667,7 +2640,7 @@
       for (const g of M.visible) M.grid.times.forEach((t, j) => lines.push([csv(g.label), csv(g.panelLabel), tidy(t, 4), tidy(g.psth.mean[j], 4), tidy(g.psth.sem[j], 4), g.psth.n, S.weight, g.psth.events, g.psth.trials].join(',')));
       download(`${stem}_psth.csv`, new Blob([`# ${JSON.stringify(provenance(M))}\n` + lines.join('\n')], {type: 'text/csv'}));
     } else if (kind === 'rows') {
-      const fields = [...new Set(['world', 'role', 'action', 'outcome', 'order', 'previous_role', S.color, S.style, S.panel, ...S.filters.map(f => f.k)].filter(k => k && M.T.byKey.has(k)))];
+      const fields = [...new Set(['task', 'microstim', 'sham', 'rewarded', 'previous_task', S.color, S.style, S.panel, ...S.filters.map(f => f.k)].filter(k => k && M.T.byKey.has(k)))];
       const markers = S.markers.filter(m => M.markerData[m.id]);
       const head = ['row_id', 'trial', 't_session_s', 'event', 'group', 'panel', 'count_window_spikes', 'count_window_rate_hz', ...markers.map(m => `marker_${m.label || m.e}_s`), ...fields];
       const lines = [head.map(csv).join(',')];
@@ -2835,10 +2808,11 @@
   }
 
   // ---------------------------------------------------- behavior timeline
-  // Session time on x; predator (−) and prey (+) rows; filled = touched, empty =
-  // avoided, red × = incorrect, outline = the object's displayed colour.  A click
-  // on a raster row, an object, an event tick or a trial pins that trial: it stays
-  // highlighted in every raster panel and the timeline centres on it.
+  // Session time on x; trial bands shaded by task; a stim lane (▲ stim train, △ sham)
+  // and an event lane (one tick per recorded event, coloured by category; ● reward,
+  // × unrewarded trial end).  A click on a raster row, an event, an alignment tick or
+  // a trial pins that trial: it stays highlighted in every raster panel and the
+  // timeline centres on it.
   const ERROR_COLOR = '#d62728';
   let btPending = false;
   function scheduleBehavior() {
@@ -2909,6 +2883,9 @@
     const {svg, layout} = behaviorSVG(B, width);
     fig.innerHTML = svg;
     D.btLayout = layout;
+    const tasks = $('btTasks');
+    if (tasks) tasks.innerHTML = [...new Set(B.trials.task.filter(Boolean))]
+      .map(t => `<i style="--c:${SEM.task[t] || '#868e96'}"></i>${esc(C.humanize(t))}`).join('');
     const n = B.trials.n;
     $('btN').max = String(n);
     $('btN').value = String(Math.min(S.btN, n));
@@ -2918,85 +2895,84 @@
     drawBehaviorPin();
   }
 
+  const EVENT_CAT_COLOR = {Stim: '#e8590c', Stimulus: '#1971c2', 'Eye & response': '#9c36b5', Reward: '#2f9e44', Trial: '#868e96'};
+  const STIM_EVENTS = new Set(['microstim', 'sham_microstim']);
+  const taskC = (task, muted) => (task && SEM.task[task] ? paint(SEM.task[task]) : muted);
   function behaviorSVG(B, width) {
     const ink = figVar('--fig-ink'), muted = figVar('--fig-muted'), gridC = figVar('--fig-grid'), axisC = figVar('--fig-axis'), bg = figVar('--fig-bg');
     const narrow = width < 560, f = f1;
     const ml = narrow ? 52 : 88, mr = 10, x0 = ml, x1 = width - mr, plotW = x1 - x0;
-    const labH = 16, rowH = 36, evH = 18, spH = 22, axH = 26, ovGap = 6, ovH = 14;
-    const yPred = labH + rowH / 2, yPrey = labH + rowH * 1.5, eTop = labH + 2 * rowH + 4, eBot = eTop + evH;
+    const labH = 16, rowH = 24, evH = 18, spH = 22, axH = 26, ovGap = 6, ovH = 14;
+    const yStim = labH + rowH / 2, yEv = labH + rowH * 1.5, eTop = labH + 2 * rowH + 4, eBot = eTop + evH;
     const sTop = eBot + 3, sBot = sTop + spH;   // the unit's spike train
     const axY = sBot + 2, ovTop = axY + axH + ovGap, height = ovTop + ovH + 5;
-    const T = B.trials, O = B.objects;
+    const T = B.trials, E = B.events;
     const V = C.behaviorView(B, btCentre(B), S.btN);
     D.btC = (V.a + V.b) / 2;
     const span = Math.max(1e-6, V.t1 - V.t0);
     const X = t => x0 + (t - V.t0) / span * plotW;
     const s0 = T.start[0], s1 = Math.max(T.stop[T.n - 1], s0 + 1e-6);
     const XO = t => x0 + (t - s0) / (s1 - s0) * plotW;
-    const worldC = w => (SEM.world[w] ? paint(SEM.world[w]) : muted);
     const out = [];
     const firstP = clamp(Math.floor(V.a) - 1, 0, T.n - 1), lastP = clamp(Math.ceil(V.b), 0, T.n - 1);
     out.push(`<clipPath id="btClip"><rect x="${f(x0)}" y="0" width="${f(plotW)}" height="${f(axY)}"/></clipPath><g clip-path="url(#btClip)">`);
-    // trial bands, world transitions, trial IDs.  A trial the animal never
-    // initiated showed no object and has no world: no band, like the ITI, and
-    // a world change is read across it from the last labelled trial.
-    let lastLabel = -Infinity, prevW = null;
-    for (let q = firstP - 1; q >= 0 && !prevW; q--) prevW = T.world[q];
+    // trial bands shaded by task, task changes, trial IDs
+    let lastLabel = -Infinity, prevTask = null;
+    for (let q = firstP - 1; q >= 0 && !prevTask; q--) prevTask = T.task[q];
+    const errC = isDark() ? '#ff6b6b' : ERROR_COLOR;
     for (let p = firstP; p <= lastP; p++) {
       const a = X(T.start[p]), z = X(T.stop[p]);
-      const w = T.world[p], change = prevW && w && prevW !== w;
-      if (w) prevW = w;
+      const task = T.task[p], change = prevTask && task && prevTask !== task;
+      if (task) prevTask = task;
       if (z < x0 - 2 || a > x1 + 2) continue;
       const done = T.complete[p] === true;
-      if (T.initiated[p] !== false) out.push(`<rect x="${f(a)}" y="${labH}" width="${f(Math.max(0.5, z - a))}" height="${f(sBot - labH)}" fill="${done ? worldC(w) : muted}" opacity="${done ? (isDark() ? 0.16 : 0.09) : 0.05}"/>`);
+      if (T.initiated[p] !== false) out.push(`<rect x="${f(a)}" y="${labH}" width="${f(Math.max(0.5, z - a))}" height="${f(sBot - labH)}" fill="${done ? taskC(task, muted) : muted}" opacity="${done ? (isDark() ? 0.16 : 0.09) : 0.05}"/>`);
       if (change) out.push(`<line x1="${f(a)}" x2="${f(a)}" y1="${labH - 2}" y2="${f(sBot)}" stroke="${ink}" stroke-width="1" stroke-dasharray="4 3" opacity="0.7"/>`);
       const cx = Math.max(a, x0) + 2;
-      if (change) { out.push(`<text x="${f(cx)}" y="11" font-size="10.5" font-weight="650" fill="${worldC(w)}">${esc(w)} ${T.id[p]}</text>`); lastLabel = cx + 40; }
+      if (change) { out.push(`<text x="${f(cx)}" y="11" font-size="10.5" font-weight="650" fill="${taskC(task, muted)}">${esc(C.humanize(task))} ${T.id[p]}</text>`); lastLabel = cx + 6 * String(task).length + 30; }
       else if (cx > lastLabel + 4 && z - a > 16) { out.push(`<text x="${f(cx)}" y="11" font-size="10" fill="${muted}">${T.id[p]}${done ? '' : ' ✕'}</text>`); lastLabel = cx + 6 * String(T.id[p]).length + 8; }
+      if (done && T.rewarded[p] === false && z > x0 && z < x1 + 2) {
+        const r = 3;
+        out.push(`<path d="M${f(z - 4 - r)} ${f(yEv - r)}l${2 * r} ${2 * r}M${f(z - 4 - r)} ${f(yEv + r)}l${2 * r} ${-2 * r}" stroke="${errC}" stroke-width="1.4" stroke-linecap="round"/>`);
+      }
     }
-    // row guides
     out.push(`<line x1="${f(x0)}" x2="${f(x1)}" y1="${f(labH + rowH)}" y2="${f(labH + rowH)}" stroke="${gridC}"/>`);
     const yoke = yokeRange();
     if (yoke) {   // the rasters' trials
       const a = X(T.start[yoke.first]), z = X(T.stop[yoke.last]);
-      out.push(`<rect x="${f(a)}" y="${labH - 3}" width="${f(Math.max(1, z - a))}" height="2.5" rx="1" fill="${figVar('--accent')}"/>`);
+      out.push(`<rect x="${f(a)}" y="${f(labH - 3)}" width="${f(Math.max(1, z - a))}" height="2.5" rx="1" fill="${figVar('--accent')}"/>`);
     }
-    // objects: on-screen span, then the glyph at the outcome
-    const k0 = C.lowerBound(O.t, V.t0 - 4), k1 = C.lowerBound(O.t, V.t1 + 0.5);
-    const sq = narrow ? 7.5 : 8.5, lane = narrow ? 5 : 5.5;
-    const glyphs = [];
-    let life = '';
+    // events: stim/sham trains as triangles, rewards as dots, everything else a tick by category
+    const k0 = C.lowerBound(E.t, V.t0 - 0.5), k1 = C.lowerBound(E.t, V.t1 + 0.5);
+    const stride = Math.max(1, Math.ceil((k1 - k0) / (plotW * 2)));
+    const sq = narrow ? 7.5 : 8.5;
+    const glyphs = [], ticks = new Map();
     for (let k = k0; k < k1; k++) {
-      const yc = (O.role[k] === 'predator' ? yPred : yPrey) + (O.lane[k] - (O.lanes[k] - 1) / 2) * lane;
-      const x = X(O.t[k]);
-      glyphs.push({k, x, y: yc});
-      if (Number.isFinite(O.onset[k])) {
-        const c = O.color[k] || muted;
-        life += `<line x1="${f(X(O.onset[k]))}" x2="${f(x)}" y1="${f(yc)}" y2="${f(yc)}" stroke="${c}"/>`;
+      const e = E.event[k], x = X(E.t[k]);
+      if (STIM_EVENTS.has(e)) {
+        glyphs.push({k, x, y: yStim});
+        const stim = e === 'microstim', h = sq;
+        out.push(`<path d="M${f(x)} ${f(yStim - h / 2)}l${f(h / 2)} ${f(h)}h${f(-h)}z" fill="${stim ? paint('#e8590c') : bg}" stroke="${stim ? paint('#e8590c') : muted}" stroke-width="1.5"/>`);
+      } else if (e === 'reward') {
+        glyphs.push({k, x, y: yEv});
+        out.push(`<circle cx="${f(x)}" cy="${f(yEv)}" r="${f(sq / 2.4)}" fill="${paint('#2f9e44')}"/>`);
+      } else if ((k - k0) % stride === 0) {
+        glyphs.push({k, x, y: yEv});
+        const c = EVENT_CAT_COLOR[eventCategory(e)] || '#868e96';
+        ticks.set(c, (ticks.get(c) || '') + `M${f(x)} ${f(yEv - 6)}v12`);
       }
     }
-    if (life) out.push(`<g stroke-width="1.3" opacity="${isDark() ? 0.5 : 0.42}">${life}</g>`);
-    const touchFill = isDark() ? '#9aa1ad' : '#777777', errC = isDark() ? '#ff6b6b' : ERROR_COLOR;
-    for (const g of glyphs) {
-      const k = g.k, bar = O.bar[k] === true;
-      const w = bar ? sq * 2.1 : sq, h = bar ? sq * 0.7 : sq;
-      const stroke = O.color[k] || muted;
-      out.push(`<rect x="${f(g.x - w / 2)}" y="${f(g.y - h / 2)}" width="${f(w)}" height="${f(h)}" fill="${O.action[k] === 'touch' ? touchFill : bg}" stroke="${stroke}" stroke-width="1.6"/>`);
-      if (O.correct[k] === false) {
-        const r = Math.min(w, h) * 0.34;
-        out.push(`<path d="M${f(g.x - r)} ${f(g.y - r)}l${f(2 * r)} ${f(2 * r)}M${f(g.x - r)} ${f(g.y + r)}l${f(2 * r)} ${f(-2 * r)}" stroke="${errC}" stroke-width="1.4" stroke-linecap="round"/>`);
-      }
-    }
+    for (const [c, d] of ticks) out.push(`<path d="${d}" stroke="${paint(c)}" stroke-width="1.2" opacity="0.8"/>`);
     // this alignment's rows: ticks coloured by raster group, faint when not in the raster
     const Tab = tableFor(), owner = rowOwners(D.model && D.model.T === Tab ? D.model : null);
-    const ticks = [];
+    const rowTicks = [];
     if (Tab) {
       const i0 = C.lowerBound(Tab.t, V.t0), i1 = C.lowerBound(Tab.t, V.t1);
-      const stride = Math.max(1, Math.ceil((i1 - i0) / (plotW * 1.5)));
+      const rstride = Math.max(1, Math.ceil((i1 - i0) / (plotW * 1.5)));
       const paths = new Map();
-      for (let i = i0; i < i1; i += stride) {
+      for (let i = i0; i < i1; i += rstride) {
         const gi = owner ? owner[i] : -1, x = X(Tab.t[i]);
-        ticks.push({i, x});
+        rowTicks.push({i, x});
         const c = gi >= 0 ? D.model.visible[gi].color : null;
         paths.set(c, (paths.get(c) || '') + (c ? `M${f(x)} ${f(eTop + 1)}v${evH - 2}` : `M${f(x)} ${f(eTop + 5)}v${evH - 10}`));
       }
@@ -3024,10 +3000,10 @@
     }
     out.push('</g>');
     // labels and axis
-    const lab = (y, text, sub) => out.push(`<text x="${f(x0 - 8)}" y="${f(y + 3.5)}" text-anchor="end" font-size="${narrow ? 10.5 : 11.5}" fill="${ink}">${esc(text)}${sub ? `<tspan fill="${muted}" font-size="10"> ${esc(sub)}</tspan>` : ''}</text>`);
-    lab(yPred, narrow ? 'pred −' : 'Predator', narrow ? '' : '(−)');
-    lab(yPrey, narrow ? 'prey +' : 'Prey', narrow ? '' : '(+)');
-    out.push(`<text x="${f(x0 - 8)}" y="${f((eTop + eBot) / 2 + 3.5)}" text-anchor="end" font-size="10" fill="${muted}">events</text>`);
+    const lab = (y, text) => out.push(`<text x="${f(x0 - 8)}" y="${f(y + 3.5)}" text-anchor="end" font-size="${narrow ? 10.5 : 11.5}" fill="${ink}">${esc(text)}</text>`);
+    lab(yStim, narrow ? 'stim' : 'Stim / sham');
+    lab(yEv, narrow ? 'events' : 'Trial events');
+    out.push(`<text x="${f(x0 - 8)}" y="${f((eTop + eBot) / 2 + 3.5)}" text-anchor="end" font-size="10" fill="${muted}">aligned</text>`);
     out.push(`<text x="${f(x0 - 8)}" y="${f(sTop + (spikeRate === null ? spH / 2 + 3.5 : 9))}" text-anchor="end" font-size="10" fill="${muted}">spikes</text>`);
     if (spikeRate !== null) out.push(`<text x="${f(x0 - 8)}" y="${f(sTop + 19)}" text-anchor="end" font-size="9.5" fill="${muted}">${C.fmtNum(spikeRate, 1)}/s</text>`);
     out.push(`<line x1="${f(x0)}" x2="${f(x1)}" y1="${f(axY)}" y2="${f(axY)}" stroke="${axisC}"/>`);
@@ -3042,7 +3018,7 @@
     for (let p = 0; p < T.n; p++) {
       if (T.initiated[p] === false) continue;
       const a = XO(T.start[p]), z = XO(T.stop[p]);
-      ov += `<rect x="${f(a)}" y="${f(ovTop)}" width="${f(Math.max(0.6, z - a))}" height="${ovH}" fill="${T.complete[p] === true ? worldC(T.world[p]) : muted}"/>`;
+      ov += `<rect x="${f(a)}" y="${f(ovTop)}" width="${f(Math.max(0.6, z - a))}" height="${ovH}" fill="${T.complete[p] === true ? taskC(T.task[p], muted) : muted}"/>`;
     }
     out.push(`<g opacity="${isDark() ? 0.55 : 0.4}">${ov}</g>`);
     if (yoke) {
@@ -3054,7 +3030,7 @@
     out.push(`<text x="${f(x0 - 8)}" y="${f(ovTop + ovH / 2 + 3.5)}" text-anchor="end" font-size="10" fill="${muted}">session</text>`);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${Math.ceil(height)}" viewBox="0 0 ${width} ${Math.ceil(height)}" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif">` +
       out.join('') + '<g id="btPinLayer" pointer-events="none"></g><g id="btHover" pointer-events="none"></g></svg>';
-    return {svg, layout: {width, height, x0, x1, plotW, labH, rowH, eTop, eBot, sTop, sBot, axY, ovTop, ovH, yPred, yPrey, sq, view: V, X, XO, s0, s1, glyphs, ticks, T: Tab}};
+    return {svg, layout: {width, height, x0, x1, plotW, labH, rowH, eTop, eBot, sTop, sBot, axY, ovTop, ovH, yStim, yEv, sq, view: V, X, XO, s0, s1, glyphs, ticks: rowTicks, T: Tab}};
   }
 
   /** What is under a point of the timeline. */
@@ -3066,7 +3042,7 @@
     if (p.y < L.eTop - 2) {
       let best = null, bd = 9;
       for (const g of L.glyphs) { const d = Math.max(Math.abs(g.x - p.x), Math.abs(g.y - p.y)); if (d < bd) { bd = d; best = g; } }
-      if (best) return {kind: 'object', k: best.k, x: best.x, y: best.y};
+      if (best) return {kind: 'event', k: best.k, x: best.x, y: best.y};
     } else if (p.y <= L.eBot + 2 && L.ticks.length) {
       let best = null, bd = 4;
       for (const tk of L.ticks) { const d = Math.abs(tk.x - p.x); if (d < bd) { bd = d; best = tk; } }
@@ -3083,24 +3059,24 @@
     return {x: (evt.clientX - r.left) * (D.btLayout.width / r.width), y: (evt.clientY - r.top) * (D.btLayout.height / r.height)};
   }
   const yesNo = v => (v === true ? 'yes' : v === false ? 'no' : '—');
-  function objectTip(k) {
-    const B = D.behavior, O = B.objects, p = O.tpos[k];
-    const kv = [['trial', O.trial[k]], ['world', p >= 0 ? B.trials.world[p] || '—' : '—'], ['outcome', eventLabel(O.outcome[k])],
-      ['correct', yesNo(O.correct[k])], ['object #', O.order[k] ?? '—'], ['bar object', yesNo(O.bar[k])],
-      ['outcome at', `${C.fmtNum(O.t[k], 2)} s`]];
-    if (Number.isFinite(O.onset[k])) kv.push(['visible at', `${C.fmtNum(O.onset[k], 2)} s (${C.fmtNum(O.t[k] - O.onset[k], 2)} s before)`]);
-    if (O.image[k]) kv.push(['image', O.image[k]]);
-    const c = O.color[k] || figVar('--fig-muted');
-    return `<div class="tr" style="--c:${c}"><i></i><span><b>${esc(O.role[k] || 'object')} · ${esc(O.action[k] ? C.formatLevel('action', O.action[k]) : '—')}</b></span></div>` +
+  function eventTip(k) {
+    const B = D.behavior, E = B.events, p = E.tpos[k], T = B.trials;
+    const start = p >= 0 ? T.start[p] : NaN;
+    const kv = [['trial', E.trial[k]], ['task', p >= 0 && T.task[p] ? C.humanize(T.task[p]) : '—'], ['at', `${C.fmtNum(E.t[k], 3)} s`]];
+    if (Number.isFinite(start)) kv.push(['in trial', `${C.fmtNum(E.t[k] - start, 3)} s after its start`]);
+    const c = paint(EVENT_CAT_COLOR[eventCategory(E.event[k])] || '#868e96');
+    return `<div class="tr" style="--c:${c}"><i></i><span><b>${esc(eventLabel(E.event[k]))}</b></span></div>` +
       `<div class="kv">${kv.map(([a, v]) => `<span>${esc(a)}</span><b>${esc(v)}</b>`).join('')}</div><div class="hint">click to pin this trial</div>`;
   }
   function trialTip(p) {
-    const B = D.behavior, T = B.trials, objs = B.byTrial[p], O = B.objects;
-    const errors = objs.filter(k => O.correct[k] === false).length;
-    const kv = [['world', T.world[p] || '—'], ['strategy', T.intention[p] || '—'], ['success', yesNo(T.success[p])], ['complete', yesNo(T.complete[p])],
+    const B = D.behavior, T = B.trials, evs = B.byTrial[p], E = B.events;
+    const kv = [['task', T.task[p] ? C.humanize(T.task[p]) : '—'], ['rewarded', yesNo(T.rewarded[p])], ['stim', yesNo(T.microstim[p])],
+      ['sham', yesNo(T.sham[p])], ['complete', yesNo(T.complete[p])],
       ['time', `${C.fmtNum(T.start[p], 1)}–${C.fmtNum(T.stop[p], 1)} s (${C.fmtNum(T.stop[p] - T.start[p], 1)} s)`],
-      ['objects', `${objs.length}${errors ? ` · ${errors} incorrect` : ''}`]];
-    if (T.initiated[p] === false) kv.push(['initiated', 'no · no object appeared']);
+      ['events', String(evs.length)]];
+    const order = evs.slice(0, 12).map(k => `${eventLabel(E.event[k])} ${C.fmtNum(E.t[k] - T.start[p], 2)}`);
+    if (order.length) kv.push(['sequence (s)', order.join(' · ') + (evs.length > 12 ? ' …' : '')]);
+    if (T.initiated[p] === false) kv.push(['fixated', 'no']);
     return `<b>trial ${T.id[p]}</b><div class="kv">${kv.map(([a, v]) => `<span>${esc(a)}</span><b>${esc(v)}</b>`).join('')}</div><div class="hint">click to pin this trial</div>`;
   }
   function btHover(hit, evt) {
@@ -3108,10 +3084,10 @@
     if (!layer) return;
     const muted = figVar('--fig-muted');
     if (!hit || hit.kind === 'overview') { layer.innerHTML = ''; $('tooltip').hidden = true; return; }
-    if (hit.kind === 'object') {
+    if (hit.kind === 'event') {
       const s = L.sq + 6;
-      layer.innerHTML = `<rect x="${f1(hit.x - s / 2 - (D.behavior.objects.bar[hit.k] ? L.sq * 0.55 : 0))}" y="${f1(hit.y - s / 2)}" width="${f1(s + (D.behavior.objects.bar[hit.k] ? L.sq * 1.1 : 0))}" height="${f1(s)}" rx="2.5" fill="none" stroke="${muted}" stroke-width="1.4"/>`;
-      tooltip(objectTip(hit.k), evt.clientX, evt.clientY);
+      layer.innerHTML = `<rect x="${f1(hit.x - s / 2)}" y="${f1(hit.y - s / 2)}" width="${f1(s)}" height="${f1(s)}" rx="2.5" fill="none" stroke="${muted}" stroke-width="1.4"/>`;
+      tooltip(eventTip(hit.k), evt.clientX, evt.clientY);
     } else if (hit.kind === 'row') {
       layer.innerHTML = `<line x1="${f1(hit.x)}" x2="${f1(hit.x)}" y1="${f1(L.labH)}" y2="${f1(L.sBot)}" stroke="${muted}" stroke-width="1"/>`;
       tooltip(rowTip(L.T, hit.i), evt.clientX, evt.clientY);
@@ -3127,7 +3103,7 @@
     const owner = rowOwners(M), g = M && owner[i] >= 0 ? M.visible[owner[i]] : null;
     const kv = [['trial', T.trial[i]], ['event time', `${C.fmtNum(T.t[i], 2)} s`]];
     if (T.event) kv.push(['event', eventLabel(T.event[i])]);
-    for (const key of ['world', 'role', 'action', 'order', 'previous_role', 'correct', S.color, S.style, S.panel]) {
+    for (const key of ['task', 'microstim', 'sham', 'rewarded', S.color, S.style, S.panel]) {
       const col = key && T.byKey.get(key);
       if (!col || kv.some(([a]) => a === col.label)) continue;
       const v = C.rawValue(col, i);
@@ -3141,7 +3117,7 @@
     return `${head}<div class="kv">${kv.map(([a, v]) => `<span>${esc(a)}</span><b>${esc(v)}</b>`).join('')}</div><div class="hint">click to pin this trial</div>`;
   }
 
-  /** Pin a trial (and optionally one of its objects / rows), or clear with null. */
+  /** Pin a trial (and optionally one of its rows), or clear with null. */
   function setPin(pin) {
     S.pin = pin;
     const B = D.behavior;
@@ -3152,22 +3128,21 @@
     renderBehavior();
   }
   function pinFromRow(T, i) {
-    const code = T.objectCodes[i];
-    return {trial: T.trial[i], uid: code >= 0 ? T.objectLevels[code] : null, row: T.rowId[i], t: T.t[i]};
+    return {trial: T.trial[i], uid: null, row: T.rowId[i], t: T.t[i]};
   }
-  function pinFromObject(k) {
-    const O = D.behavior.objects, T = tableFor();
+  function pinFromEvent(k) {
+    const E = D.behavior.events, T = tableFor();
     let row = null;
     if (T) {
-      // the row of this object in the current alignment, preferring the one nearest its outcome
+      // the row of this trial in the current alignment nearest the event
       let best = Infinity;
       for (let i = 0; i < T.n; i++) {
-        if (T.trial[i] !== O.trial[k] || T.objectCodes[i] < 0 || T.objectLevels[T.objectCodes[i]] !== O.uid[k]) continue;
-        const d = Math.abs(T.t[i] - O.t[k]);
+        if (T.trial[i] !== E.trial[k]) continue;
+        const d = Math.abs(T.t[i] - E.t[k]);
         if (d < best) { best = d; row = T.rowId[i]; }
       }
     }
-    return {trial: O.trial[k], uid: O.uid[k], row, t: O.t[k]};
+    return {trial: E.trial[k], uid: null, row, t: E.t[k]};
   }
 
   /** The pinned trial in every raster panel; the pinned row outlined. */
@@ -3200,12 +3175,6 @@
       const x = L.X(pin.t);
       out.push(`<line x1="${f1(x)}" x2="${f1(x)}" y1="${f1(L.labH)}" y2="${f1(L.axY)}" stroke="${accent}" stroke-width="1.2" stroke-dasharray="3 2"/>`);
     }
-    const k = pin.uid !== null ? B.key.get(`${pin.trial}|${pin.uid}`) : undefined;
-    const g = k !== undefined && L.glyphs.find(x => x.k === k);
-    if (g) {
-      const bar = B.objects.bar[k] === true, w = (bar ? L.sq * 2.1 : L.sq) + 8, h = (bar ? L.sq * 0.7 : L.sq) + 8;
-      out.push(`<rect x="${f1(g.x - w / 2)}" y="${f1(g.y - h / 2)}" width="${f1(w)}" height="${f1(h)}" rx="3" fill="none" stroke="${accent}" stroke-width="2.2"/>`);
-    }
     const xo = L.XO((B.trials.start[p] + B.trials.stop[p]) / 2);
     out.push(`<path d="M${f1(xo)} ${f1(L.ovTop - 3)}l-4 -5h8z" fill="${accent}"/>`);
     layer.innerHTML = out.join('');
@@ -3214,14 +3183,14 @@
     const el = $('btPin');
     if (!el) return;
     const pin = S.pin;
-    if (!pin) { el.innerHTML = '<span class="bt-hint">click a raster row, object or trial to pin it</span>'; return; }
+    if (!pin) { el.innerHTML = '<span class="bt-hint">click a raster row, event or trial to pin it</span>'; return; }
     const B = D.behavior, M = D.model;
     const bits = [`<b>trial ${pin.trial}</b>`];
     const p = B ? B.trials.pos.get(pin.trial) : undefined;
-    if (p !== undefined && B.trials.world[p]) bits.push(esc(B.trials.world[p]));
-    const k = B && pin.uid !== null ? B.key.get(`${pin.trial}|${pin.uid}`) : undefined;
-    if (k !== undefined) bits.push(esc(eventLabel(B.objects.outcome[k])));
-    if (p !== undefined && B.trials.initiated[p] === false) bits.push('never initiated · in no raster');
+    if (p !== undefined && B.trials.task[p]) bits.push(esc(C.humanize(B.trials.task[p])));
+    if (p !== undefined && B.trials.microstim[p] === true) bits.push('stim');
+    else if (p !== undefined && B.trials.sham[p] === true) bits.push('sham');
+    if (p !== undefined && B.trials.complete[p] !== true) bits.push('incomplete · in no raster');
     else if (M) {
       const T = M.T, owner = rowOwners(M), why = {filtered: 0, yoked: 0, unstable: 0, window: 0, hidden: 0};
       let all = 0, shown = 0;
@@ -3247,7 +3216,7 @@
     const fig = $('btFig');
     const act = (hit, evt) => {
       if (!hit) return;
-      if (hit.kind === 'object') setPin(pinFromObject(hit.k));
+      if (hit.kind === 'event') setPin(pinFromEvent(hit.k));
       else if (hit.kind === 'row') setPin(pinFromRow(D.btLayout.T, hit.i));
       else if (hit.kind === 'trial') setPin({trial: D.behavior.trials.id[hit.p], uid: null, row: null, t: null});
       if (evt.pointerType !== 'mouse') btHover(behaviorHit(btPoint(evt)), evt);
@@ -3467,10 +3436,9 @@
     });
     $('tdrBtn').addEventListener('click', openTdrPicker);
     $('popover').addEventListener('click', e => {
-      const t = e.target.closest('[data-tdr],[data-wc],[data-tdr-reset]'); if (!t) return;
+      const t = e.target.closest('[data-tdr],[data-tdr-reset]'); if (!t) return;
       if (t.dataset.tdr) S.tdrFactors = S.tdrFactors.includes(t.dataset.tdr) ? S.tdrFactors.filter(x => x !== t.dataset.tdr) : [...S.tdrFactors, t.dataset.tdr].slice(0, 10);
-      else if (t.dataset.wc) S.worldCoding = t.dataset.wc;
-      else { S.tdrFactors = clone(DEFAULTS.tdrFactors); S.worldCoding = 'linear'; }
+      else S.tdrFactors = clone(DEFAULTS.tdrFactors);
       openTdrPicker(); renderStructure(); changed();
     });
     const tdrWinChange = () => {
@@ -3651,7 +3619,7 @@
       $('sessionSelect').innerHTML = D.catalog.map(s => `<option value="${esc(s.id)}" title="${esc(s.id)}">${esc(shortSession(s.id))}</option>`).join('') || '<option>No sessions</option>';
       if (await openFindingLink()) return;
       const sid = D.catalog.some(s => s.id === S.session) ? S.session : cat.default_session;
-      if (!sid) { showEmpty('No assembled sessions found', 'Mount the results drive (for example /Volumes/T7) or start electro_gui with --session-file.'); return; }
+      if (!sid) { showEmpty('No sessions found', 'Export one with `python -m session_viewer build …` (phys-analysis) into ~/viewer_sessions, or start electro_gui with --data-root or --session-file.'); return; }
       await selectSession(sid);
       renderStructure();
     } catch (e) {

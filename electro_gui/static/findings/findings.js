@@ -107,7 +107,7 @@
     const code = f.code || {};
     return `<div class="fd-sec"><h3>Saved evidence · as measured when it was saved, never edited</h3>` +
       `<p><b>${esc(ev.title || '')}</b>${ev.subtitle ? ` — ${esc(ev.subtitle)}` : ''}</p>` +
-      `<p>${esc(st.session || '')} · NWB SHA256 <code>${esc(String(src.sha256 || 'not recorded').slice(0, 16))}${src.sha256 ? '…' : ''}</code>${src.size_bytes ? ` · ${(src.size_bytes / 1e9).toFixed(2)} GB` : ''}</p>` +
+      `<p>${esc(st.session || '')} · session SHA256 <code>${esc(String(src.sha256 || 'not recorded').slice(0, 16))}${src.sha256 ? '…' : ''}</code>${(src.size_bytes || src.size) ? ` · ${((src.size_bytes || src.size) / 1e9).toFixed(2)} GB` : ''}</p>` +
       `<p>${esc(who)}</p><p>${esc(supportBits.join(' · '))}</p>` +
       (rows ? `<table class="fd-table"><thead><tr><th>group</th><th class="n">events</th><th class="n">trials</th>${rates ? `<th class="n">count window ${esc(cw)}, spikes/s (mean ± SEM)</th>` : ''}</tr></thead><tbody>${rows}</tbody></table>` : '') +
       fit + `<p>Saved ${esc(when(f.saved_at))}${f.saved_on ? ` on ${esc(f.saved_on)}` : ''} with electro_gui ${esc(code.electro_gui || '?')}` +
@@ -124,7 +124,7 @@
       `<div class="fd-body"><div class="fd-pic">${f.has_thumbnail ? `<img alt="The figure as saved" src="/api/findings/${encodeURIComponent(f.id)}/thumbnail">` : '<div class="none">No picture was saved with this finding.</div>'}</div>` +
       `<form class="fd-edit" id="dForm"><label><span>Title</span><input type="text" id="dTitle" maxlength="200" required value="${esc(f.title)}"></label>` +
       `<div class="row"><span>Status <small>your judgement, not a test</small></span><div class="seg" id="dStatus">${STATUSES.map(s => `<button type="button" data-st="${s}" class="${s === st ? 'on' : ''}">${s}</button>`).join('')}</div></div>` +
-      `<label><span>Notes</span><textarea id="dNote" rows="7" maxlength="20000" placeholder="Why it matters · what this view does not control (the joystick?) · what to check next">${esc(f.note || '')}</textarea></label>` +
+      `<label><span>Notes</span><textarea id="dNote" rows="7" maxlength="20000" placeholder="Why it matters · what this view does not control (eye movements?) · what to check next">${esc(f.note || '')}</textarea></label>` +
       `<label><span>Tags <small>separated by commas</small></span><input type="text" id="dTags" autocomplete="off" value="${esc((f.tags || []).join(', '))}"></label></form>` +
       evidenceHtml(f) + `</div>` +
       `<div class="fd-foot"><a class="primary" href="/#f=${encodeURIComponent(f.id)}">Open in electro_gui</a><button type="button" class="small" data-ddownload>Download file</button>` +

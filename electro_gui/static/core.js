@@ -26,55 +26,33 @@
 
   // ---------------------------------------------------------------- labels
   const FIELD_LABELS = {
-    world: 'world', intention: 'trial strategy', role: 'role', action: 'action', outcome: 'outcome',
-    order: 'object #', image_id: 'image', bar: 'bar object', correct: 'correct', success: 'trial success',
-    reward_tokens: 'reward tokens', block_id: 'block', trial: 'trial', since_trial_start: 'time in trial (s)',
-    previous_role: 'previous object', previous_action: 'previous action', previous_outcome: 'previous outcome',
-    previous_correct: 'previous correct', next_role: 'next object', next_action: 'next action',
-    next_outcome: 'next outcome', is_first_object: 'first object', is_last_object: 'last object',
-    before_first_error: 'before first error', trial_error_free: 'error-free trial',
-    trial_has_predator_touch: 'trial has predator touch', trial_has_prey_miss: 'trial has prey miss',
-    trial_changed_strategy: 'strategy changed', previous_trial_intention: 'previous-trial strategy',
-    next_trial_intention: 'next-trial strategy', goal_release_t: 'goal release (s from event)',
-    next_outcome_t: 'next outcome (s from event)', trial_end_t: 'trial end (s from event)',
-    object_outcome_t: 'object outcome (s from event)',
+    task: 'task', microstim: 'stim', sham: 'sham', rewarded: 'rewarded', success: 'trial success',
+    fixated: 'fixated', microstim_amplitude: 'stim amplitude (uA)', block_id: 'block', task_type: 'task type',
+    trial: 'trial', since_trial_start: 'time in trial (s)', previous_task: 'previous task',
+    previous_rewarded: 'previous rewarded', trial_end_t: 'trial end (s from event)', trial_start_t: 'trial start (s from event)',
   };
   const LEVEL_ORDER = {
-    world: ['PP', 'PM', 'MM'], intention: ['PP', 'PM', 'MM', 'NA'], role: ['prey', 'predator'],
-    action: ['touch', 'avoid'], outcome: ['prey_capture', 'prey_miss', 'predator_contact', 'predator_avoid'],
+    task: ['fixation', 'memory_saccade', 'pursuit', 'pursuit_memory', 'overlap_saccade', 'reveal', 'freeview'],
   };
-  ['previous_trial_intention', 'next_trial_intention'].forEach(k => { LEVEL_ORDER[k] = LEVEL_ORDER.intention; });
-  ['previous_role', 'next_role'].forEach(k => { LEVEL_ORDER[k] = LEVEL_ORDER.role; });
-  ['previous_action', 'next_action'].forEach(k => { LEVEL_ORDER[k] = LEVEL_ORDER.action; });
-  ['previous_outcome', 'next_outcome'].forEach(k => { LEVEL_ORDER[k] = LEVEL_ORDER.outcome; });
+  LEVEL_ORDER.previous_task = LEVEL_ORDER.task;
 
-  const humanize = s => String(s).replace(/^trial\./, '').replace(/^object\./, 'object ').replace(/_/g, ' ');
+  const humanize = s => String(s).replace(/^trial\./, '').replace(/_/g, ' ');
   function fieldLabel(key, col) {
     if (FIELD_LABELS[key]) return FIELD_LABELS[key];
     const base = humanize(key);
     return col && col.relative ? base.replace(/ t$/, '') + ' (s from event)' : base;
   }
 
-  const ACTION_WORD = {touch: 'touched', avoid: 'passed'};
-  const OUTCOME_WORD = {prey_capture: 'prey captured', prey_miss: 'prey missed', predator_contact: 'predator touched', predator_avoid: 'predator avoided'};
   /** Legend-ready text for one level of one field. */
   function formatLevel(key, value) {
     const missing = value === null || value === undefined;
-    if (key === 'previous_role' || key === 'previous_action' || key === 'previous_outcome' || key === 'previous_correct')
-      return missing ? 'first object' : key === 'previous_role' ? `after ${value}` : key === 'previous_action' ? `after ${ACTION_WORD[value] || value}`
-        : key === 'previous_outcome' ? `after ${OUTCOME_WORD[value] || humanize(value)}` : `previous ${value ? 'correct' : 'error'}`;
-    if (key === 'next_role' || key === 'next_action' || key === 'next_outcome')
-      return missing ? 'no next object' : key === 'next_role' ? `before ${value}` : key === 'next_action' ? `next ${ACTION_WORD[value] || value}` : `next ${OUTCOME_WORD[value] || humanize(value)}`;
+    if (key === 'previous_task') return missing ? 'first trial' : `after ${humanize(value)}`;
+    if (key === 'previous_rewarded') return missing ? 'first trial' : value ? 'after a rewarded trial' : 'after an unrewarded trial';
     if (missing) return `${fieldLabel(key)} missing`;
-    if (key === 'action') return ACTION_WORD[value] || String(value);
-    if (key === 'outcome') return OUTCOME_WORD[value] || humanize(value);
-    if (key === 'intention') return `strategy ${value}`;
-    if (key === 'previous_trial_intention') return `after ${value} trial`;
-    if (key === 'next_trial_intention') return `before ${value} trial`;
-    if (key === 'world' || key === 'role') return String(value);
-    if (key === 'correct') return value ? 'correct' : 'error';
-    if (key === 'trial_error_free') return value ? 'error-free trial' : 'trial has an error';
-    if (key === 'before_first_error') return value ? 'before first error' : 'after first error';
+    if (key === 'task') return humanize(value);
+    if (key === 'microstim') return value ? 'stim' : 'no stim';
+    if (key === 'sham') return value ? 'sham' : 'no sham';
+    if (key === 'rewarded') return value ? 'rewarded' : 'unrewarded';
     if (key === 'success') return value ? 'trial success' : 'trial failure';
     if (typeof value === 'boolean') return `${fieldLabel(key)}: ${value ? 'yes' : 'no'}`;
     if (typeof value === 'number') return `${fieldLabel(key)} ${fmtNum(value)}`;
@@ -117,8 +95,7 @@
     });
     const byKey = new Map(columns.map(c => [c.key, c]));
     return {n, alignment: json.alignment, sessionId: json.session_id, rowId: Int32Array.from(json.row_id),
-      t: Float64Array.from(json.t), trial: Int32Array.from(json.trial), event: json.event,
-      objectCodes: Int32Array.from(json.object.codes), objectLevels: json.object.levels, columns, byKey};
+      t: Float64Array.from(json.t), trial: Int32Array.from(json.trial), event: json.event, columns, byKey};
   }
   function rank(order, v) { const i = order.indexOf(String(v)); return i < 0 ? order.length : i; }
 
@@ -274,13 +251,13 @@
   }
 
   // --------------------------------------------------------------- markers
-  /** Index one event's occurrences by trial: Map(trial -> [{t, obj}] sorted by t). */
+  /** Index one event's occurrences by trial: Map(trial -> [{t}] sorted by t). */
   function indexEvents(json) {
     const byTrial = new Map();
     for (let j = 0; j < json.n; j++) {
       const trial = json.trial[j];
       if (!byTrial.has(trial)) byTrial.set(trial, []);
-      byTrial.get(trial).push({t: json.t[j], obj: json.object[j]});
+      byTrial.get(trial).push({t: json.t[j]});
     }
     for (const list of byTrial.values()) list.sort((a, b) => a.t - b.t);
     return byTrial;
@@ -300,17 +277,15 @@
 
   /**
    * Per-row marker times relative to each row's event.
-   * spec: {match:'object'|'trial', occ, end?}; start/end: indexEvents() maps.
+   * spec: {match:'trial', occ, end?}; start/end: indexEvents() maps (rows match events of their own trial).
    * Returns [{t, t2?}] per row (t2 = band end); empty array when unmatched.
    */
   function markerTimes(table, rows, start, spec, end) {
     const out = new Array(table.n);
     for (const i of rows) {
       const anchor = table.t[i], trial = table.trial[i];
-      const obj = table.objectCodes[i] >= 0 ? table.objectLevels[table.objectCodes[i]] : null;
-      const sameObject = e => spec.match !== 'object' || (obj !== null && e.obj === obj);
-      const hits = pick((start.get(trial) || []).filter(sameObject), anchor, spec.occ || 'nearest');
-      const ends = end ? (end.get(trial) || []).filter(sameObject) : null;
+      const hits = pick(start.get(trial) || [], anchor, spec.occ || 'nearest');
+      const ends = end ? end.get(trial) || [] : null;
       out[i] = hits.map(h => {
         const m = {t: h.t - anchor};
         if (ends) {
@@ -489,7 +464,7 @@
   }
   /**
    * Subset of `masks` maximising (members x shared trials): multistart greedy growth,
-   * as imitation_phys.explorer_core.select_stable_population, over at most 60 seeds.
+   * as session_viewer.explorer_core.select_stable_population, over at most 60 seeds.
    * Returns indices into masks and the shared-trial count.
    */
   function bestSubset(masks, nbits, maxSeeds = 60) {
@@ -568,77 +543,27 @@
 
   // ------------------------------------------------------ behavior timeline
   /**
-   * Displayed colour of an equal-luminance stimulus, from its image ID.  The
-   * MWorks generator (mworks/imitation/generate_equal_luminosity_stimuli.py)
-   * names image <shape>equalum_<i>_<size>_<texture> after colour i, whose hue
-   * is 0.99 i on its 0-100 scale, drawn at the most saturated HSV colour that
-   * reaches luma 0.5 (0.299 R + 0.587 G + 0.114 B).  This ports that search
-   * exactly.  Returns '#rrggbb', or null for an ID outside that convention.
-   */
-  const stimulusCache = new Map();
-  function stimulusColor(imageId) {
-    const m = /^(squar|bars)equalum_(\d+)_/.exec(String(imageId ?? ''));
-    if (!m || Number(m[2]) > 99) return null;
-    const idx = Number(m[2]);
-    if (stimulusCache.has(idx)) return stimulusCache.get(idx);
-    const h = (idx * 99 / 100) / 100;
-    let best = null, bestSat = 0;
-    for (let k = 0; k < 200; k++) {
-      const sat = 1 + k * (-1 / 199);   // the generator's linspace(1, 0, 200)
-      let lo = 0, hi = 1;
-      for (let it = 0; it < 50; it++) {
-        const val = (lo + hi) / 2;
-        const rgb = hsvToRgb(h, sat, val);
-        const luma = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
-        if (Math.abs(luma - 0.5) < 0.001) { if (sat > bestSat) { bestSat = sat; best = rgb; } break; }
-        if (luma < 0.5) lo = val; else hi = val;
-      }
-      if (bestSat > 0.8) break;
-    }
-    const rgb = best ? best.map(c => Math.trunc(c * 255)) : [127, 127, 127];
-    const hex = '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('');
-    stimulusCache.set(idx, hex);
-    return hex;
-  }
-  function hsvToRgb(h, s, v) {   // Python colorsys.hsv_to_rgb
-    if (s === 0) return [v, v, v];
-    const i = Math.trunc(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
-    return [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
-  }
-
-  /**
-   * Index the behavior payload: trials in session order, each object's trial
-   * position and its lane (its rank among same-role objects of that trial, by
-   * ordinal, as in imitation's plot_trial_object_actions).
+   * Index the behavior payload: trials in session order, and each recorded event's
+   * trial position; byTrial[p] lists trial p's events in time order.
    */
   function prepareBehavior(json) {
-    const tr = json.trials, ob = json.objects;
-    const nT = tr.id.length, nO = ob.t.length;
+    const tr = json.trials, ev = json.events;
+    const nT = tr.id.length, nE = ev.t.length;
     const pos = new Map(tr.id.map((id, i) => [id, i]));
+    const col = (v, d = null) => v || tr.id.map(() => d);
     const trials = {n: nT, id: Int32Array.from(tr.id), start: Float64Array.from(tr.start), stop: Float64Array.from(tr.stop),
-      complete: tr.complete, initiated: tr.initiated || tr.id.map(() => null), world: tr.world, intention: tr.intention,
-      success: tr.success, pos};
-    const objects = {n: nO, trial: Int32Array.from(ob.trial), uid: ob.uid, rowId: Int32Array.from(ob.row_id),
-      t: Float64Array.from(ob.t), onset: Float64Array.from(ob.onset, v => (v === null ? NaN : v)),
-      role: ob.role, action: ob.action, outcome: ob.outcome, correct: ob.correct, bar: ob.bar, image: ob.image_id, order: ob.order,
-      tpos: new Int32Array(nO), lane: new Int8Array(nO), lanes: new Int8Array(nO), color: ob.image_id.map(stimulusColor)};
+      complete: tr.complete, initiated: col(tr.initiated), task: col(tr.task), rewarded: col(tr.rewarded),
+      microstim: col(tr.microstim), sham: col(tr.sham), success: col(tr.success), pos};
+    const events = {n: nE, trial: Int32Array.from(ev.trial), t: Float64Array.from(ev.t), event: ev.event,
+      rowId: Int32Array.from(ev.row_id || ev.t.map(() => -1)), tpos: new Int32Array(nE)};
     const byTrial = Array.from({length: nT}, () => []);
-    const key = new Map();
-    for (let k = 0; k < nO; k++) {
-      const p = pos.has(ob.trial[k]) ? pos.get(ob.trial[k]) : -1;
-      objects.tpos[k] = p;
+    for (let k = 0; k < nE; k++) {
+      const p = pos.has(ev.trial[k]) ? pos.get(ev.trial[k]) : -1;
+      events.tpos[k] = p;
       if (p >= 0) byTrial[p].push(k);
-      key.set(`${ob.trial[k]}|${ob.uid[k]}`, k);
     }
-    for (const list of byTrial) {
-      list.sort((a, b) => (ob.order[a] ?? 1e9) - (ob.order[b] ?? 1e9) || ob.t[a] - ob.t[b]);
-      for (const role of ['prey', 'predator']) {
-        const same = list.filter(k => ob.role[k] === role);
-        same.forEach((k, r) => { objects.lane[k] = r; objects.lanes[k] = same.length; });
-      }
-    }
-    // Objects in time order (the payload order) for range queries.
-    return {sessionId: json.session_id, trials, objects, byTrial, key};
+    // Events arrive in time order (the payload order), for range queries.
+    return {sessionId: json.session_id, trials, events, byTrial};
   }
 
   /** A /api/explorer/spiketrain payload as sorted session times (s): t[i] = tick_s * (dt[0] + … + dt[i]). */
@@ -761,8 +686,8 @@
     const out = [];
     if (saved.session_id !== now.session_id) out.push(`It was saved from session ${saved.session_id}; the figure shows ${now.session_id}.`);
     const a = (saved.source || {}).sha256, b = (now.source || {}).sha256;
-    if (a && b && a !== b) out.push(`The session NWB is not the file it was saved from (SHA256 ${a.slice(0, 12)}… then, ${b.slice(0, 12)}… now): unit IDs may name other neurons.`);
-    else if (a && !b) out.push('The server did not report the NWB checksum, so the file cannot be matched.');
+    if (a && b && a !== b) out.push(`The session.h5 is not the file it was saved from (SHA256 ${a.slice(0, 12)}… then, ${b.slice(0, 12)}… now): unit IDs may name other neurons.`);
+    else if (a && !b) out.push('The server did not report the session file checksum, so the file cannot be matched.');
     if (saved.unit && now.unit) {
       if (saved.unit.id !== now.unit.id) out.push(`It was saved for unit ${saved.unit.id}; the figure shows unit ${now.unit.id}.`);
       else {
@@ -824,7 +749,7 @@
   }
 
   return {GUARD_S, MISSING, SEP, FIELD_LABELS, LEVEL_ORDER, fieldLabel, formatLevel, fmtNum, humanize, levelKey,
-    stimulusColor, prepareBehavior, decodeSpikeTrain, spikeColumns, timeAtPos, posAtTime, behaviorView, viewTrials, yokedTrials, upperBound,
+    prepareBehavior, decodeSpikeTrain, spikeColumns, timeAtPos, posAtTime, behaviorView, viewTrials, yokedTrials, upperBound,
     prepareTable, rawValue, fieldLevels, filterMask, eligibility, quantileEdges, groupRows, indexEvents,
     markerTimes, median, countIn, lowerBound, psthGrid, rowCurve, psth, psthFromCurves, thin, windowRates, sortRows, encodeState, decodeState,
     decodeMask, andMask, andCount, popcount, fullMask, bestSubset, heatColor, project3d, hash,

@@ -14,10 +14,17 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from imitation_phys.explorer_core import UNION_ALIGNMENTS, eligible_runs
-from imitation_phys.session_store import HIDDEN_EVENTS
+from session_viewer.explorer_core import UNION_ALIGNMENTS, eligible_runs
+from session_viewer.store import HIDDEN_EVENTS
 
 from .conditions import default_recipe, group_value, missing, select, validate
+
+#: Curve colours by level (static/explorer.js SEM): tasks, and stimulation on/off.
+TASK_COLORS = {"fixation": "#495057", "memory_saccade": "#1971c2", "pursuit": "#2f9e44", "reveal": "#f08c00",
+               "overlap_saccade": "#9c36b5", "freeview": "#868e96", "pursuit_memory": "#c2255c"}
+STIM_COLORS = {"True": "#e8590c", "stim": "#e8590c", "False": "#495057", "sham": "#495057"}
+COLORS = {**TASK_COLORS, **STIM_COLORS}
+COLOR_KEYS = frozenset(COLORS)
 
 
 def _finite(x: Any) -> bool:
@@ -73,13 +80,13 @@ def prepare_rows(loaded: Any, request: Mapping[str, Any], unit_ids: Sequence[Any
     runs = eligible_runs(loaded, eligible)
     recipe = request.get("recipe")
     if recipe is None:
-        recipe = default_recipe()
+        recipe = default_recipe(loaded)
     if recipe.get("blocked_reason"):
         raise ValueError(str(recipe["blocked_reason"]))
     errors = validate(recipe, loaded)
     if errors:
         raise ValueError("; ".join(errors))
-    alignment = request.get("alignment", "object_outcome")
+    alignment = request.get("alignment", "fix_on")
     if alignment not in UNION_ALIGNMENTS and alignment not in set(getattr(loaded, "alignments", []) or []):
         known = {r.get("event") for r in getattr(loaded, "rows", []) if r.get("event")} - HIDDEN_EVENTS
         if alignment not in known:
@@ -112,7 +119,7 @@ def prepare_rows(loaded: Any, request: Mapping[str, Any], unit_ids: Sequence[Any
         if not good:
             excluded["window"] += 1
             continue
-        candidates.append(dict(row, trial=tid, block_id=row.get("block_id", trial.get("block_id")), world=row.get("world", trial.get("world")), intention=row.get("intention", trial.get("intention"))))
+        candidates.append(dict(row, trial=tid, block_id=row.get("block_id", trial.get("block_id")), task=row.get("task", trial.get("task"))))
     chosen = select(candidates, effective_recipe, loaded)
     if chosen["errors"]:
         raise ValueError("; ".join(chosen["errors"]))
@@ -131,8 +138,8 @@ def prepare_rows(loaded: Any, request: Mapping[str, Any], unit_ids: Sequence[Any
         if facet != "none":
             row["facet_raw_value"] = row.get(facet)
         row["facet_value"] = facet_value
-        row["color_key"] = str(value) if str(value) in ("PP", "PM", "MM", "NA", "prey", "predator") or group_by != "cohort" else str(row.get("cohort"))
-        row["line_dashed"] = bool(split is False) if split_by == "correct" else bool(split_by != "none" and str(split) == "avoid")
+        row["color_key"] = str(value) if str(value) in COLOR_KEYS or group_by != "cohort" else str(row.get("cohort"))
+        row["line_dashed"] = bool(split_by != "none" and split is False)
         row["group"] = repr((row.get("cohort"), row.get("facet_key", "none"), value, split))
         row["group_label"] = f"{row.get('cohort_name', row.get('cohort'))}" + ("" if facet == "none" else f" · {facet}={facet_value if facet_value is not None else 'missing'}") + ("" if group_by == "cohort" else f" · {value if value is not None else 'missing'}") + ("" if split_by == "none" else f" · {split if split is not None else 'missing'}")
     if len({r["group"] for r in rows}) > 24:

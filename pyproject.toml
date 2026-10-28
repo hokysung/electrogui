@@ -5,14 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "electro-gui"
 dynamic = ["version"]
-description = "Interactive raster / PSTH and population explorer for assembled imitation-project session NWBs"
+description = "Interactive raster / PSTH and population explorer for exported oculomotor session.h5 files"
 requires-python = ">=3.11"
-# imitation-phys is the analysis_imitation repository's package and is not on
-# PyPI: install that checkout first (pip install -e ../analysis_imitation), then
-# this one.  electro_gui reads sessions and fits population bases through it.
+# electro_gui reads sessions and fits population bases through `session_viewer`,
+# a package of the phys-analysis repository that is not on PyPI.  Make it
+# importable first: `pip install -e <phys-analysis>` or put the phys-analysis
+# checkout on PYTHONPATH.
 dependencies = [
-  "imitation-phys>=0.5",
   "numpy>=2.1,<3",
+  "h5py>=3.10",
+  "pandas>=2.1",
+  "pyarrow>=14",
+  "scikit-learn>=1.4",
   "matplotlib>=3.9,<4",
 ]
 
@@ -29,5 +33,5 @@ include = ["electro_gui*"]
 "electro_gui" = [
   "README.md", "DESIGN.md",
   "static/*.html", "static/*.css", "static/*.js", "static/*.webmanifest",
-  "static/classic/*", "static/findings/*", "static/icons/*",
+  "static/findings/*", "static/icons/*",
 ]

@@ -59,7 +59,7 @@ def export_statistics(result):
 
 def _source_sha(result):
     provenance = result.get("provenance", {})
-    return provenance.get("computation_identity", {}).get("source_nwb", {}).get("sha256", "")
+    return provenance.get("computation_identity", {}).get("source", {}).get("sha256", "")
 
 
 def _annotation_columns(result):
@@ -68,7 +68,7 @@ def _annotation_columns(result):
     if not isinstance(annotations, dict) or not annotations.get("layers"):
         return {}
     provenance = result.get("provenance", {})
-    source_identity = provenance.get("source_identity") or provenance.get("computation_identity", {}).get("source_nwb", {})
+    source_identity = provenance.get("source_identity") or provenance.get("computation_identity", {}).get("source", {})
     annotation_provenance = provenance.get("annotation") or annotations.get("provenance", {})
     return {
         "annotation_layers_json": json.dumps(annotations.get("layers", []), ensure_ascii=False, sort_keys=True),
@@ -83,7 +83,8 @@ def export_svg(result, axes=(0, 1)):
     from matplotlib.backends.backend_svg import FigureCanvasSVG
     import numpy as np
 
-    colors = {"PP": "#56B4E9", "PM": "#999999", "MM": "#E69F00", "A": "#225f72", "B": "#5f3dc4", "C": "#b3282d"}   # worlds: the task repository's convention (2026-10-01)
+    from .analysis import COLORS
+    colors = dict(COLORS)   # tasks and stim/sham, as the explorer draws them
     annotations = result.get("annotations", {})
     annotation_layers = {str(x.get("id")): x for x in annotations.get("layers", []) if x.get("visible", True)}
 
@@ -187,7 +188,7 @@ def export_svg(result, axes=(0, 1)):
         draw_annotations(course)
         draw_aggregate_strip(course)
     fig.suptitle(title, fontsize=11)
-    fig.text(.01, .002, f"electro_gui 0.1 · NWB SHA256 {_source_sha(result)}", fontsize=6)
+    fig.text(.01, .002, f"electro_gui 0.1 · session SHA256 {_source_sha(result)}", fontsize=6)
     stream = io.BytesIO()
     fig.savefig(stream, format="svg", metadata={"Description": json.dumps({"settings": result["settings"], "provenance": result["provenance"], "annotations": result.get("annotations", {})}, ensure_ascii=False)})
     return stream.getvalue()

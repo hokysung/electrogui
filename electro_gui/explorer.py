@@ -6,11 +6,12 @@ that every knob redraws instantly.  This module supplies only what the
 browser cannot compute from the session:
 
 * ``alignment_table``: every candidate row of one alignment with its joined
-  trial/object/history fields, in a dictionary-encoded columnar layout;
+  trial and previous-trial fields, in a dictionary-encoded columnar layout;
 * ``unit_raster``: one unit's spike times around each row of that table, and
   each row's eligible span under a stability policy;
 * ``event_times``: the times of one recorded event, for per-row markers;
-* ``spike_train``: one unit's whole spike train, for the behavior timeline.
+* ``spike_train``: one unit's whole spike train, for the behavior timeline;
+* ``behavior_timeline``: every trial's span, task, outcome, stimulation and events.
 
 Row candidacy and eligibility follow :func:`electro_gui.analysis.prepare_rows`
 exactly: complete trials only, finite times inside the ephys recording and
@@ -20,8 +21,7 @@ contains the event.  The browser applies the window part of that rule from
 the returned span, so moving the window never needs a server round trip.
 
 The rows, spans, time grid, rates and basis fit themselves live in
-:mod:`imitation_phys.explorer_core`, which the world-axis stages call to
-reproduce an exported population view; this module imports them.
+:mod:`session_viewer.explorer_core` (phys-analysis); this module imports them.
 """
 from __future__ import annotations
 
@@ -32,10 +32,10 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from imitation_phys.explorer_core import (GUARD_S, OUTCOMES, UNION_ALIGNMENTS, alignment_rows, checked_unit_ids,
-                                         eligible_spans, explorer_cache, fit_basis, grid, group_means, is_candidate,
-                                         row_rates)
-from imitation_phys.session_store import HIDDEN_EVENTS
+from session_viewer.explorer_core import (GUARD_S, UNION_ALIGNMENTS, alignment_rows, checked_unit_ids,
+                                          eligible_spans, explorer_cache, fit_basis, grid, group_means, is_candidate,
+                                          row_rates)
+from session_viewer.store import HIDDEN_EVENTS
 
 from .conditions import missing
 
@@ -47,9 +47,7 @@ SPIKE_TRAIN_TICK_S = 1e-4  # behavior timeline lane: far below one pixel at its 
 # Fields that identify rows rather than describe them, aliases, and fields that
 # are constant by construction in a table of complete, in-recording rows.
 _SKIP = {"row_id", "t", "session_time", "trial_index", "object_uid", "event", "complete",
-         "within_ephys_recording", "within_sync_fit_window", "next_outcome_row_object_uid",
-         "trial.start_time", "trial.stop_time", "trial.complete", "trial.preset_manifest_path",
-         "trial.preset_session_id", "trial.preset_schema_version"}
+         "within_ephys_recording", "within_sync_fit_window"}
 _MAX_LEVELS = 400      # free-text columns (paths, sequences) are not useful to group by
 
 
@@ -58,7 +56,7 @@ def _finite(value: Any) -> bool:
 
 
 def alignment_counts(loaded: Any) -> dict[str, int]:
-    """Candidate rows per alignment, including the four-outcome union."""
+    """Candidate rows per alignment, including the pooled (union) alignments."""
     cache = explorer_cache(loaded)
     if "counts" not in cache:
         complete = {t["id"] for t in loaded.trials if t.get("complete") is True}
@@ -128,13 +126,10 @@ def alignment_table(loaded: Any, alignment: str) -> dict:
         columns.append({"key": "since_trial_start", "label": "Time since trial start", "kind": "num", "data": since_start,
                         "relative": False, "category": "task", "timing": "anchor",
                         "description": "Seconds from the trial's start to this event."})
-    uids = sorted({str(r.get("object_uid")) for r in rows if not missing(r.get("object_uid"))})
-    uid_index = {u: i for i, u in enumerate(uids)}
     table = {"session_id": loaded.session_id, "alignment": alignment, "n": len(rows),
              "row_id": [int(r["row_id"]) for r in rows], "t": [round(a, 6) for a in anchors],
              "trial": [int(r["trial"]) for r in rows],
              "event": [str(r.get("event")) for r in rows] if alignment in UNION_ALIGNMENTS else None,
-             "object": {"levels": uids, "codes": [uid_index.get(str(r.get("object_uid")), -1) for r in rows]},
              "columns": columns}
     cache[alignment] = table
     return table
@@ -203,7 +198,7 @@ def spike_train(loaded: Any, unit_id: int) -> dict:
 
 
 def event_times(loaded: Any, event: str) -> dict:
-    """All valid occurrences of one recorded event (or the outcome union)."""
+    """All valid occurrences of one recorded event (or a pooled alignment)."""
     cache = explorer_cache(loaded).setdefault("events", {})
     if event not in cache:
         known = {r.get("event") for r in loaded.rows} - HIDDEN_EVENTS
@@ -214,43 +209,30 @@ def event_times(loaded: Any, event: str) -> dict:
                 and r.get("within_ephys_recording", True) is not False and r.get("within_sync_fit_window", True) is not False]
         rows.sort(key=lambda r: float(r["t"]))
         cache[event] = {"event": event, "n": len(rows), "trial": [int(r["trial"]) for r in rows],
-                        "t": [round(float(r["t"]), 6) for r in rows],
-                        "object": [None if missing(r.get("object_uid")) else str(r.get("object_uid")) for r in rows]}
+                        "t": [round(float(r["t"]), 6) for r in rows]}
     return cache[event]
 
 
 def behavior_timeline(loaded: Any) -> dict:
-    """Every trial's span and every resolved object's outcome, for the behavior timeline.
+    """Every trial's span and conditions, and every recorded event, for the behavior timeline.
 
-    One entry per object with a recorded outcome (bars included and flagged),
-    at its outcome time; ``onset`` is its recorded ``object_visible_onset``.
-    Times follow :func:`event_times`: finite, inside the ephys recording and
-    the sync-fit window.  Objects without an outcome (an aborted trial) are
-    not listed.  Nothing here is inferred: role, action, correctness, bar and
-    image identity are the joined fields every explorer row already carries.
+    ``trials`` lists each trial with a finite start and stop, in session order, with its ``task``,
+    ``rewarded``, ``microstim`` and ``sham``.  ``events`` lists every recorded event of those
+    trials in time order (``trial``, ``t``, ``event``), with :func:`event_times`' validity rule:
+    finite, inside the ephys recording and the sync-fit window.  Nothing is inferred.
     """
     cache = explorer_cache(loaded)
     if "behavior" in cache:
         return cache["behavior"]
-
-    def valid(r):
-        return (r.get("trial") is not None and _finite(r.get("t")) and not missing(r.get("object_uid"))
-                and r.get("within_ephys_recording", True) is not False and r.get("within_sync_fit_window", True) is not False)
-
-    onsets: dict = {}
-    for r in loaded.rows:
-        if r.get("event") == "object_visible_onset" and valid(r):
-            key = (int(r["trial"]), str(r["object_uid"]))
-            onsets[key] = min(float(r["t"]), onsets.get(key, math.inf))
-    objects, seen = [], set()
-    for r in sorted((r for r in loaded.rows if r.get("event") in OUTCOMES and valid(r)), key=lambda r: (float(r["t"]), int(r["row_id"]))):
-        key = (int(r["trial"]), str(r["object_uid"]))
-        if key in seen:
-            continue
-        seen.add(key)
-        objects.append((key, r))
     trials = [t for t in loaded.trials if _finite(t.get("start")) and _finite(t.get("stop"))]
     trials.sort(key=lambda t: (float(t["start"]), int(t["id"])))
+    kept = {int(t["id"]) for t in trials}
+    events = sorted((r for r in loaded.rows
+                     if r.get("trial") is not None and int(r["trial"]) in kept and _finite(r.get("t"))
+                     and r.get("event") not in HIDDEN_EVENTS
+                     and r.get("within_ephys_recording", True) is not False
+                     and r.get("within_sync_fit_window", True) is not False),
+                    key=lambda r: (float(r["t"]), int(r["row_id"])))
     text = lambda v: None if missing(v) else str(v)
     flag = lambda v: v if isinstance(v, bool) else None
     out = {
@@ -258,15 +240,11 @@ def behavior_timeline(loaded: Any) -> dict:
         "trials": {"id": [int(t["id"]) for t in trials], "start": [round(float(t["start"]), 6) for t in trials],
                    "stop": [round(float(t["stop"]), 6) for t in trials], "complete": [flag(t.get("complete")) for t in trials],
                    "initiated": [flag(t.get("initiated")) for t in trials],
-                   "world": [text(t.get("world")) for t in trials], "intention": [text(t.get("intention")) for t in trials],
+                   "task": [text(t.get("task")) for t in trials], "rewarded": [flag(t.get("rewarded")) for t in trials],
+                   "microstim": [flag(t.get("microstim")) for t in trials], "sham": [flag(t.get("sham")) for t in trials],
                    "success": [flag(t.get("success")) for t in trials]},
-        "objects": {"trial": [k[0] for k, _ in objects], "uid": [k[1] for k, _ in objects],
-                    "row_id": [int(r["row_id"]) for _, r in objects], "t": [round(float(r["t"]), 6) for _, r in objects],
-                    "onset": [round(onsets[k], 6) if k in onsets else None for k, _ in objects],
-                    "role": [text(r.get("role")) for _, r in objects], "action": [text(r.get("action")) for _, r in objects],
-                    "outcome": [str(r["event"]) for _, r in objects], "correct": [flag(r.get("correct")) for _, r in objects],
-                    "bar": [flag(r.get("bar")) for _, r in objects], "image_id": [text(r.get("image_id")) for _, r in objects],
-                    "order": [int(r["order"]) if _finite(r.get("order")) else None for _, r in objects]},
+        "events": {"trial": [int(r["trial"]) for r in events], "t": [round(float(r["t"]), 6) for r in events],
+                   "event": [str(r["event"]) for r in events], "row_id": [int(r["row_id"]) for r in events]},
     }
     cache["behavior"] = out
     return out
@@ -289,9 +267,9 @@ def session_summary(loaded: Any) -> dict:
 def stability_masks(loaded: Any) -> dict:
     """Verified-stable trials of every unit as base64 bitmasks over complete trials."""
     import base64
-    from imitation_phys.session_stability import get_session_stability
+    from session_viewer.store import get_session_stability
     loaded._check()
-    stability = get_session_stability(loaded.session, cache_root=loaded.cache_dir)
+    stability = get_session_stability(loaded.file)
     trials = sorted(int(t["id"]) for t in loaded.trials if t.get("complete") is True)
     index = {t: i for i, t in enumerate(trials)}
     pairs = getattr(stability, "stable_trials", {}) or {}
@@ -307,8 +285,8 @@ def stability_masks(loaded: Any) -> dict:
             "bit_order": "trial i (index into trials) is bit (i & 7) of byte (i >> 3)"}
 
 
-_FIT_FIELDS = ("unit_ids", "alignment", "policy", "method", "scaling", "weight", "components", "pre", "post", "bin", "sigma", "groups", "factors", "tdr_window", "world_coding")
-TDR_DEFAULT_FACTORS = ("world", "action", "joystick_direction")
+_FIT_FIELDS = ("unit_ids", "alignment", "policy", "method", "scaling", "weight", "components", "pre", "post", "bin", "sigma", "groups", "factors", "tdr_window")
+TDR_DEFAULT_FACTORS = ("task", "microstim")
 
 
 def _fit_inputs(loaded: Any, request: Mapping[str, Any]) -> dict:
@@ -326,7 +304,7 @@ def _fit_inputs(loaded: Any, request: Mapping[str, Any]) -> dict:
     if weight not in ("trial", "event"):
         raise ValueError("weight must be trial or event")
     components = request.get("components", 3)
-    factors, world_coding = request.get("factors"), "linear"
+    factors = request.get("factors")
     if method == "tdr":
         factors = list(TDR_DEFAULT_FACTORS) if factors is None else factors
         registry = {f["key"]: f for f in getattr(loaded, "fields", [])}
@@ -336,10 +314,7 @@ def _fit_inputs(loaded: Any, request: Mapping[str, Any]) -> dict:
         for f in factors:
             if registry.get(f, {}).get("availability") != "available":
                 raise ValueError(f"TDR factor {f!r} is not available in this session.")
-        world_coding = request.get("world_coding", "linear")
-        if world_coding not in ("linear", "steps"):
-            raise ValueError("world_coding must be linear or steps")
-        components = len(factors) + (1 if world_coding == "steps" and "world" in factors else 0)
+        components = len(factors)
     elif isinstance(components, bool) or not isinstance(components, int) or not 2 <= components <= MAX_COMPONENTS:
         raise ValueError(f"Choose 2-{MAX_COMPONENTS} components.")
     pre, post = _window(request.get("pre"), "pre"), _window(request.get("post"), "post")
@@ -384,7 +359,7 @@ def _fit_inputs(loaded: Any, request: Mapping[str, Any]) -> dict:
         raise ValueError("Event x time matrix is too large; narrow the selection or widen the bins.")
     key = json.dumps({k: request.get(k) for k in _FIT_FIELDS}, sort_keys=True, default=str)
     return {"ids": ids, "alignment": alignment, "policy": policy, "method": method, "scaling": scaling, "weight": weight,
-            "components": components, "factors": factors, "world_coding": world_coding, "tdr_window": tdr_window, "pre": pre, "post": post, "bin": bin_s, "sigma": sigma, "groups": groups,
+            "components": components, "factors": factors, "tdr_window": tdr_window, "pre": pre, "post": post, "bin": bin_s, "sigma": sigma, "groups": groups,
             "members": members, "flat": flat, "eligible": eligible, "provenance": provenance,
             "n": n, "radius": radius, "kernel": kernel, "times": times, "key": key}
 
@@ -422,7 +397,7 @@ def population_fit(loaded: Any, request: Mapping[str, Any]) -> dict:
     if method == "tdr":
         from .tdr import design, fit_axes
         registry = {f["key"]: f for f in getattr(loaded, "fields", [])}
-        X, used, described = design(flat, inp["factors"], registry, inp["world_coding"])
+        X, used, described = design(flat, inp["factors"], registry)
         if used.sum() * n * len(ids) > 60_000_000:
             raise ValueError("TDR event x time x neuron array is too large; narrow the selection, the TDR window or the roster.")
         lo, hi = inp["tdr_window"]
@@ -432,10 +407,10 @@ def population_fit(loaded: Any, request: Mapping[str, Any]) -> dict:
         used_anchors = anchors[used]
         rates = np.stack([row_rates(np.sort(np.asarray(loaded.spikes(uid), dtype=float)), used_anchors, pre, bin_s, n, radius, kernel)[:, bins]
                           for uid in ids], axis=2)
-        fit = fit_axes(means, ids, rates, X, described, bins, scaling, world_coding=inp["world_coding"])
+        fit = fit_axes(means, ids, rates, X, described, bins, scaling)
         tdr = fit["tdr"]
         tdr.update(window=[lo, hi], bins=[int(bins[0]), int(bins[-1])], events_without_factor=int((~used).sum()),
-                   factor_keys=list(inp["factors"]), world_coding=inp["world_coding"])
+                   factor_keys=list(inp["factors"]))
         for f in tdr["factors"]:
             f["peak_time"] = float(times[f["peak_bin"]])
         coords, loadings = np.array(fit["coordinates"], dtype=float), np.array(fit["loadings"], dtype=float)

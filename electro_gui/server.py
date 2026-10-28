@@ -20,9 +20,9 @@ import time
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
-import imitation_phys
-from imitation_phys import explorer_core
-from imitation_phys.session_store import SessionStore
+import session_viewer
+from session_viewer import explorer_core
+from session_viewer.store import SessionStore
 
 from . import __version__
 from .exports import export_csv, export_json, export_membership, export_statistics, export_svg
@@ -94,14 +94,14 @@ class Application:
         start = time.monotonic()
         with self.lock:
             job = self.jobs[job_id]
-            job.update(status="running", message="Loading and verifying the assembled NWB; the first load reads its complete fingerprint.")
+            job.update(status="running", message="Loading the session file; the first load reads its complete fingerprint.")
         self.store_lock.acquire()
         try:
             loaded = self.store.get(request["session_id"])
             if request["action"] == "load":
                 result = loaded.metadata()
             elif request["action"] == "stable_selection":
-                from imitation_phys.explorer_core import select_stable_population
+                from session_viewer.explorer_core import select_stable_population
                 with self.lock:
                     job["message"] = "Selecting SUA/MUA units for shared stable neuron × trial coverage."
                 result = select_stable_population(loaded)
@@ -109,11 +109,11 @@ class Application:
                 base_result = request.get("_base_result")
                 if not isinstance(base_result, dict) or base_result.get("session_id") != loaded.session_id:
                     raise ValueError("Annotation source session does not match the completed result.")
-                base_sha = base_result.get("provenance", {}).get("computation_identity", {}).get("source_nwb", {}).get("sha256")
+                base_sha = base_result.get("provenance", {}).get("computation_identity", {}).get("source", {}).get("sha256")
                 current_sha = loaded.session.source_identity().get("sha256")
                 if base_sha and current_sha and base_sha != current_sha:
-                    raise ValueError("Annotation source NWB changed since the completed result; recompute before annotating.")
-                from imitation_phys.derived_cache import computation_identity, cache_key
+                    raise ValueError("Annotation source session file changed since the completed result; recompute before annotating.")
+                from session_viewer.cache import computation_identity, cache_key
                 package = Path(__file__).resolve().parent
                 annotation_parameters = {"layers": request.get("layers", []),
                                          "base_computation_key": base_result.get("provenance", {}).get("computation_key")}
@@ -130,7 +130,7 @@ class Application:
                 result.setdefault("provenance", {}).update(annotation_job=job_id, source_path=str(loaded.session.path),
                                                           annotation_identity=identity, annotation_key=cache_key(identity))
             else:
-                from imitation_phys.derived_cache import computation_identity, cache_key
+                from session_viewer.cache import computation_identity, cache_key
                 from .analysis import compute_unit
                 from .population import compute_population
                 code = [path for root in _PACKAGES.values() for path in root.rglob("*.py")]
@@ -147,9 +147,9 @@ class Application:
                 provenance = result.setdefault("provenance", {})
                 provenance.update(version=__version__, source_path=str(loaded.session.path),
                                   computation_identity=identity, computation_key=cache_key(identity),
-                                  upstream_freshness="not audited; exact assembled NWB is the empirical source",
+                                  upstream_freshness="not audited; the exact exported session.h5 is the empirical source",
                                   repository=_git_identity(_REPO),
-                                  imitation_phys_repository=_git_identity(_PACKAGES["imitation_phys"].parent))
+                                  session_viewer_repository=_session_viewer_identity())
             # Reject nonfinite / unserializable payloads before claiming completion.
             json.dumps(result, allow_nan=False)
             with self.lock:
@@ -222,7 +222,7 @@ class Application:
             if what == "stability":
                 return explorer.stability_masks(loaded)
             if what == "stable_roster":
-                from imitation_phys.explorer_core import select_stable_population
+                from session_viewer.explorer_core import select_stable_population
                 return select_stable_population(loaded)
         raise KeyError("Unknown explorer endpoint")
 
@@ -257,7 +257,7 @@ class Application:
         itself never holds it, so it cannot end up inside the file).
         """
         code = {"electro_gui": __version__, **_git_identity(_REPO),
-                "imitation_phys": {"version": imitation_phys.__version__, **_git_identity(_PACKAGES["imitation_phys"].parent)}}
+                "session_viewer": _session_viewer_identity()}
         saved = self._findings().create(payload, saved_on=_HOST, code=code)
         return {**saved, "path": str(self._findings().file(saved["id"]))}
 
@@ -376,14 +376,20 @@ class Tailnet:
 BOOT_ID = uuid4().hex[:12]
 STARTED = time.time()
 # The two packages the explorer runs, wherever each is installed: its own and
-# the pipeline's (imitation_phys lives in the analysis_imitation repository).
+# the session backend's (session_viewer lives in the phys-analysis repository).
 _PACKAGES = {"electro_gui": Path(__file__).resolve().parent,
-             "imitation_phys": Path(imitation_phys.__file__).resolve().parent}
+             "session_viewer": Path(session_viewer.__file__).resolve().parent}
 _REPO = _PACKAGES["electro_gui"].parent
 
 
+def _session_viewer_identity():
+    """session_viewer has no version string: its install path and the git state of the repository holding it."""
+    root = _PACKAGES["session_viewer"]
+    return {"path": str(root), **_git_identity(root.parent)}
+
+
 def code_changed_since(started=None):
-    """Python files of electro_gui and imitation_phys modified after this server started, as ``package/path``.
+    """Python files of electro_gui and session_viewer modified after this server started, as ``package/path``.
 
     Those are what a restart picks up; static files are read from disk on every
     request, so a page reload already gets them.

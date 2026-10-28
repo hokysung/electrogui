@@ -12,18 +12,29 @@ import time
 import webbrowser
 
 from . import __version__
-from .paths import OUTPUT_ENV, output_root, presentation_dir
+from .paths import OUTPUT_ENV, output_root
 
-DEFAULT_ROOTS = ("/Volumes/T7/engaging-results", "/Volumes/Transfer/engaging_results")
+#: Session roots, each holding <Subject>_<YYYYMMDD>/session.h5: $SESSION_VIEWER_ROOTS (os.pathsep-separated),
+#: else ~/viewer_sessions.
+ROOTS_ENV = "SESSION_VIEWER_ROOTS"
+def default_roots():
+    """``$SESSION_VIEWER_ROOTS`` split on ``os.pathsep``, else ``~/viewer_sessions``."""
+    configured = os.environ.get(ROOTS_ENV)
+    if configured:
+        return [p for p in configured.split(os.pathsep) if p]
+    return [str(Path("~/viewer_sessions").expanduser())]
+
+
 # Set by _restart for the process that replaces this one: {"port": ..., "token": ...}.
 RESTART_ENV = "ELECTRO_GUI_RESTART"
 
 
 def add_arguments(parser):
     parser.add_argument("--version", action="version", version=f"electro_gui {__version__}")
-    parser.add_argument("--data-root", action="append", help="Session product root; repeat for multiple roots. Defaults to T7 and Transfer.")
-    parser.add_argument("--session-file", action="append", help="Exact assembled <session>_session.nwb; repeat to add sessions.")
-    parser.add_argument("--cache-dir", help="Disposable verified stability cache (default: <Dropbox>/projects/electro_gui/output/cache).")
+    parser.add_argument("--data-root", action="append", help="Folder of <Subject>_<YYYYMMDD>/session.h5 exports; repeat for several "
+                        f"(default: ${ROOTS_ENV}, else ~/viewer_sessions).")
+    parser.add_argument("--session-file", action="append", help="One exported session.h5; repeat to add sessions.")
+    parser.add_argument("--cache-dir", help=f"Disposable derived-result cache (default: ${OUTPUT_ENV}/cache, else ~/electro_gui_output/cache).")
     parser.add_argument("--port", type=int, default=8765, help="Port; 0 chooses a free port (default: %(default)s).")
     parser.add_argument("--host", default="127.0.0.1",
                         help="Interface to listen on (default: loopback only). Use --lan, or e.g. 0.0.0.0, to open it "
@@ -34,27 +45,21 @@ def add_arguments(parser):
                         help="Tailnet login let in through tailscale serve without a token (default: this node's owner).")
     parser.add_argument("--findings-dir",
                         help="Folder of saved findings (one JSON file and one PNG each), shared by every device that opens "
-                             "this server (default: <Dropbox>/projects/electro_gui/output/findings).")
+                             f"this server (default: ${OUTPUT_ENV}/findings, else ~/electro_gui_output/findings).")
     parser.add_argument("--config-dir", action="append",
                         help="Directory of JSON config files for the Views menu (a deck's electro_gui_configs/, or a folder "
                              "holding decks); repeat for several. Relative to the current directory; a missing one is empty "
-                             "(default: <Dropbox>/projects/analysis_imitation/data/output/presentation).")
+                             "(default: none).")
     parser.add_argument("--no-browser", action="store_true", help="Print the URL without opening a browser.")
     return parser
 
 
 def _folders(args):
-    """The cache, findings and config folders: the flags where given, else the Dropbox defaults (paths.py)."""
+    """The cache, findings and config folders: the flags where given, else the output-folder defaults (paths.py)."""
     output = output_root()
-    if output is None and (args.cache_dir is None or args.findings_dir is None):
-        raise SystemExit(f"electro_gui: no Dropbox found for its output folder; set {OUTPUT_ENV} "
-                         "or pass --cache-dir and --findings-dir.")
     cache_dir = Path(args.cache_dir).expanduser() if args.cache_dir is not None else output / "cache"
     findings_dir = Path(args.findings_dir).expanduser() if args.findings_dir is not None else output / "findings"
-    if args.config_dir is not None:
-        config_dirs = args.config_dir
-    else:
-        config_dirs = [d for d in (presentation_dir(),) if d is not None]
+    config_dirs = args.config_dir if args.config_dir is not None else []
     return cache_dir, findings_dir, config_dirs
 
 
@@ -66,9 +71,9 @@ def run(args):
         args.port, args.no_browser = int(restart["port"]), True
     cache_dir, findings_dir, config_dirs = _folders(args)
     os.environ.setdefault("MPLCONFIGDIR", str(cache_dir / "matplotlib"))
-    from imitation_phys.session_store import SessionStore
+    from session_viewer.store import SessionStore
     from .server import Application, Tailnet, make_server
-    roots = args.data_root if args.data_root is not None else DEFAULT_ROOTS
+    roots = args.data_root if args.data_root is not None else default_roots()
     store = SessionStore(roots=roots, session_files=args.session_file or [], cache_dir=cache_dir)
     application = Application(store, findings_dir=findings_dir, config_dirs=config_dirs)
     host = "0.0.0.0" if args.lan else args.host
@@ -102,7 +107,7 @@ def run(args):
     if host in ("127.0.0.1", "localhost", "::1"):
         print(f"  tailnet: `tailscale serve --bg --https={port} http://127.0.0.1:{port}` lets this node's owner in, "
               "no token needed.", flush=True)
-    print(f"Found {len(store.catalog())} assembled sessions. Findings are saved in {application.findings.root}.", flush=True)
+    print(f"Found {len(store.catalog())} sessions in {', '.join(map(str, roots))}. Findings are saved in {application.findings.root}.", flush=True)
     print("Ctrl-C stops the server.", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
@@ -125,7 +130,7 @@ def _restart(port, token):
     ``exec`` keeps the PID, so a launchd ``KeepAlive`` agent, a terminal or a
     preview runner all keep the same process; the new interpreter imports the
     code now on disk.  Every descriptor but stdin/out/err is closed first, so
-    open NWB files are not carried into the new process.
+    open session files are not carried into the new process.
     """
     import resource
     argv = [sys.executable, *(getattr(sys, "orig_argv", None) or [sys.executable, "-m", "electro_gui", *sys.argv[1:]])[1:]]
@@ -181,7 +186,7 @@ def _lan_addresses():
 
 
 def main(argv=None):
-    parser = add_arguments(argparse.ArgumentParser(prog="electro-gui", description="Explore any unit in an assembled NWB session, locally."))
+    parser = add_arguments(argparse.ArgumentParser(prog="electro-gui", description="Explore any unit of an exported session.h5, locally."))
     args = parser.parse_args(argv)
     if not 0 <= args.port <= 65535:
         parser.error("--port must be between 0 and 65535")

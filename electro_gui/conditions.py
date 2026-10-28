@@ -1,6 +1,6 @@
 """Typed recipe validation and event conditioning for :mod:`electro_gui`.
 
-The functions in this module are deliberately free of NWB or plotting code.  A
+The functions in this module are deliberately free of file-reading or plotting code.  A
 ``LoadedSession`` supplies JSON-like rows and a field registry; this module
 validates a recipe, applies it, and records every exclusion.
 """
@@ -167,11 +167,11 @@ def validate(recipe: Any, loaded: Any = None) -> list[str]:
             errors.append(f"{key} numeric field {value!r} requires explicit group_bins edges.")
     if recipe.get("overlap", "exclude") not in {"exclude", "allow"}:
         errors.append("Overlap policy must be exclude or allow.")
-    if recipe.get("strata", "none") not in {"none", "trial", "world"}:
-        errors.append("Common support must be none, trial, or world.")
+    if recipe.get("strata", "none") not in {"none", "trial", "task"}:
+        errors.append("Common support must be none, trial, or task.")
     if recipe.get("strata", "none") != "none" and len(cohorts) < 2:
         errors.append("Common support requires at least two cohorts.")
-    if recipe.get("gate", "none") not in {"none", "before_next_outcome", "before_trial_end"}:
+    if recipe.get("gate", "none") not in {"none", "before_trial_end"}:
         errors.append("Unknown temporal gate.")
     return errors
 
@@ -237,7 +237,7 @@ def select(rows: Sequence[Mapping[str, Any]], recipe: Mapping[str, Any] | None, 
     if gate != "none":
         if not isinstance(window, (list, tuple)) or len(window) != 2 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in window):
             return {"rows": [], "summary": summary, "errors": ["A finite count window is required for a temporal gate."]}
-        endpoint = "next_outcome_t" if gate == "before_next_outcome" else "trial_end_t"
+        endpoint = "trial_end_t"
         kept = []
         for m in memberships:
             r = m["row"]
@@ -250,7 +250,7 @@ def select(rows: Sequence[Mapping[str, Any]], recipe: Mapping[str, Any] | None, 
     strata = recipe.get("strata", "none")
     if strata != "none":
         strata_sets: dict[Any, set[str]] = {}
-        field = "trial" if strata == "trial" else "world"
+        field = "trial" if strata == "trial" else "task"
         for m in memberships:
             value = m["row"].get(field, m["row"].get("trial_index") if field == "trial" else None)
             if missing(value): continue
@@ -282,9 +282,18 @@ def select(rows: Sequence[Mapping[str, Any]], recipe: Mapping[str, Any] | None, 
     return {"rows": selected, "summary": summary, "errors": []}
 
 
-def default_recipe() -> dict[str, Any]:
-    return {"shared": {"mode": "all", "rules": []}, "cohorts": [
-        {"id": "PP", "name": "PP", "mode": "all", "rules": [{"field": "world", "op": "eq", "value": "PP"}]},
-        {"id": "PM", "name": "PM", "mode": "all", "rules": [{"field": "world", "op": "eq", "value": "PM"}]},
-        {"id": "MM", "name": "MM", "mode": "all", "rules": [{"field": "world", "op": "eq", "value": "MM"}]},
-    ], "facet": "none", "group_by": "cohort", "split_by": "none", "overlap": "exclude", "strata": "none", "gate": "none"}
+#: Task order for cohorts and legends (static/core.js LEVEL_ORDER.task).
+TASK_ORDER = ("fixation", "memory_saccade", "pursuit", "pursuit_memory", "overlap_saccade", "reveal", "freeview")
+
+
+def default_recipe(loaded: Any = None) -> dict[str, Any]:
+    """One cohort per task: the tasks the session's ``task`` field lists, else the main ones."""
+    field = _field_map(loaded).get("task") if loaded is not None else None
+    tasks = [str(v) for v in (field or {}).get("values") or []] if field else []
+    if not tasks:
+        tasks = ["memory_saccade", "pursuit", "pursuit_memory"]
+    tasks.sort(key=lambda t: (TASK_ORDER.index(t) if t in TASK_ORDER else len(TASK_ORDER), t))
+    cohorts = [{"id": t, "name": t.replace("_", " "), "mode": "all", "rules": [{"field": "task", "op": "eq", "value": t}]}
+               for t in tasks]
+    return {"shared": {"mode": "all", "rules": []}, "cohorts": cohorts,
+            "facet": "none", "group_by": "cohort", "split_by": "none", "overlap": "exclude", "strata": "none", "gate": "none"}

@@ -2,7 +2,7 @@
 
 Annotations are deliberately evaluated after membership and numerical results have
 been produced.  They never participate in selection, counts, tests, or model fits.
-Only recorded event rows from the loaded assembled session are accepted here.
+Only recorded event rows from the loaded session are accepted here.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Any, Mapping, Sequence
 
 
 KINDS = {"reference", "event", "interval"}
-MATCHES = {"same_object", "same_trial"}
+MATCHES = {"same_trial"}
 OCCURRENCES = {"first", "last", "all"}
 
 
@@ -56,7 +56,7 @@ def validate_layers(layers: Any) -> list[str]:
                 errors.append(f"{where} reference time must be finite.")
             continue
         if layer.get("match", "same_trial") not in MATCHES:
-            errors.append(f"{where} match must be same_object or same_trial.")
+            errors.append(f"{where} match must be same_trial.")
         if layer.get("occurrence", "all") not in OCCURRENCES:
             errors.append(f"{where} occurrence must be first, last, or all.")
         if kind == "event" and not isinstance(layer.get("event"), str):
@@ -77,12 +77,6 @@ def _identity(anchor: Mapping[str, Any], candidate: Mapping[str, Any], match: st
     other_trial = candidate.get("trial", candidate.get("trial_index"))
     if trial is None or other_trial is None or trial != other_trial:
         return None
-    if match == "same_object":
-        obj = anchor.get("object_uid")
-        other_obj = candidate.get("object_uid")
-        if obj is None or other_obj is None or obj == "" or other_obj == "" or obj != other_obj:
-            return None
-        return (trial, str(obj))
     return (trial,)
 
 
@@ -106,11 +100,7 @@ def _pair_intervals(loaded, anchor, layer, index):
         return [], 0, 1
     groups = defaultdict(list)
     for t, kind, row in combined:
-        # same_trial movement endpoints have no object identity; when an object
-        # identity exists, retain it so two objects cannot be paired together.
-        obj = row.get("object_uid")
-        key = (row.get("trial", row.get("trial_index")), str(obj)) if (match == "same_object" or obj not in (None, "")) else (row.get("trial", row.get("trial_index")), "__trial__")
-        groups[key].append((t, kind, row))
+        groups[row.get("trial", row.get("trial_index"))].append((t, kind, row))
     pairs, ambiguous, missing_count = [], 0, 0
     for events in groups.values():
         events.sort(key=lambda x: (x[0], x[1] != "on", int(x[2].get("row_id", 0))))
@@ -237,7 +227,7 @@ def annotate_result(result: Mapping[str, Any], loaded: Any, layers: Sequence[Map
             if kind == "event":
                 candidates = _occurrence(_candidates(loaded, anchor, layer["event"], match, index), occurrence)
                 ticks = [float(row["t"]) - float(anchor["t"]) for row in candidates if lo <= float(row["t"]) - float(anchor["t"]) <= hi]
-                per_layer[lid] = {"ticks": ticks, "tick_records": [{"time": t, "row_id": c.get("row_id"), "trial": c.get("trial"), "object_uid": c.get("object_uid")} for t, c in [(float(x["t"]) - float(anchor["t"]), x) for x in candidates] if lo <= t <= hi], "intervals": []}
+                per_layer[lid] = {"ticks": ticks, "tick_records": [{"time": t, "row_id": c.get("row_id"), "trial": c.get("trial")} for t, c in [(float(x["t"]) - float(anchor["t"]), x) for x in candidates] if lo <= t <= hi], "intervals": []}
                 if ticks: summaries[lid]["coverage"] += 1
                 elif candidates: summaries[lid]["clipped"] += 1
                 else: summaries[lid]["missing"] += 1
@@ -249,7 +239,7 @@ def annotate_result(result: Mapping[str, Any], loaded: Any, layers: Sequence[Map
             for start, stop, start_row, stop_row in pairs:
                 interval, state = _clip_interval(start - float(anchor["t"]), stop - float(anchor["t"]), lo, hi)
                 if interval is not None:
-                    interval.update({"onset_row_id": start_row.get("row_id"), "offset_row_id": stop_row.get("row_id"), "trial": start_row.get("trial"), "object_uid": start_row.get("object_uid")})
+                    interval.update({"onset_row_id": start_row.get("row_id"), "offset_row_id": stop_row.get("row_id"), "trial": start_row.get("trial")})
                     intervals.append(interval)
                 if state in ("clipped", "outside"): summaries[lid]["clipped"] += 1
                 elif state == "ambiguous": summaries[lid]["ambiguous"] += 1
@@ -264,8 +254,8 @@ def annotate_result(result: Mapping[str, Any], loaded: Any, layers: Sequence[Map
                                           "selected_rows": len(cloned_rows), "unique_anchor_rows": len(row_values),
                                           "coverage_unit": "selected membership rows with a visible annotation",
                                           "endpoint_diagnostics_unit": "endpoint problems accumulated over selected membership rows",
-                                          "source": "recorded_events", "detected_bouts": "unavailable: GUI v0.1 does not derive continuous joystick bouts"},
-                              "provenance": {"source": "loaded assembled NWB event table", "membership_unchanged": True,
+                                          "source": "recorded_events", "detected_bouts": "unavailable: GUI v0.1 does not derive continuous movement bouts"},
+                              "provenance": {"source": "loaded session event table", "membership_unchanged": True,
                                              "counts_tests_model_unchanged": True}}
     cloned["settings"] = copy.deepcopy(result.get("settings", {}))
     cloned["settings"]["annotations"] = copy.deepcopy(layers)

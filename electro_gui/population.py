@@ -1,13 +1,13 @@
 """Descriptive population transforms fitted jointly to selected condition means.
 
-The rates and the basis fit are :mod:`imitation_phys.explorer_core`'s
-``smoothed_rates`` and ``fit_basis``, shared with the world-axis stages.
+The rates and the basis fit are :mod:`session_viewer.explorer_core`'s
+``smoothed_rates`` and ``fit_basis``.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from imitation_phys.explorer_core import fit_basis, smoothed_rates
+from session_viewer.explorer_core import fit_basis, smoothed_rates
 
 from .analysis import prepare_rows
 

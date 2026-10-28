@@ -1,7 +1,7 @@
 """Targeted dimensionality reduction (Mante et al. 2013) for the population view.
 
 Each neuron's single-event rate, in every bin of a chosen window, is regressed on
-task factors (world, action, joystick direction, ...).  The coefficient vectors
+task factors (task, microstim, target position, ...).  The coefficient vectors
 across neurons say how strongly, and with what sign, each factor is carried by
 the population at each time.  One axis per factor is read at the time its
 coefficient vector is largest, restricted to the leading principal subspace of
@@ -18,9 +18,7 @@ import numpy as np
 from .conditions import missing
 
 DENOISE_DIMS = 12   # Mante et al. keep 12 PCs
-MAX_LEVELS = 6
-# Factors with a natural order are coded as one evenly spaced column, first level -1 to last level +1.
-ORDINAL = {"world": ("PP", "PM", "MM")}
+MAX_LEVELS = 8
 
 
 def _natural(text):
@@ -30,12 +28,10 @@ def _natural(text):
         return (1, 0.0, text)
 
 
-def design(rows, factors, registry, world_coding="linear"):
+def design(rows, factors, registry):
     """Effect-coded design matrix for rows that have every factor.
 
-    World is ordinal: ``world_coding="linear"`` is one column (PP=-1, PM=0, MM=+1); ``"steps"`` is two,
-    whose coefficients are PM-PP and MM-PM (columns "world >= PM" and "world == MM"), giving two axes.  Any
-    other categorical factor  Any other categorical factor with L levels contributes L-1 sum-to-zero columns; a
+    A categorical (or boolean) factor with L levels contributes L-1 sum-to-zero columns; a
     numeric factor contributes one standardised column.  Returns
     (X with an intercept column, keep mask, factor descriptions).
     """
@@ -63,26 +59,6 @@ def design(rows, factors, registry, world_coding="linear"):
         levels = [v for v in canonical if v in present] + sorted(present - set(canonical), key=_natural)
         if len(levels) < 2:
             raise ValueError(f"Factor {key!r} has a single level ({levels[0]}) among the selected events; TDR needs it to vary.")
-        order = ORDINAL.get(key)
-        if order and world_coding == "steps" and key == "world":
-            if levels != list(order):
-                raise ValueError("Stepwise world coding needs PP, PM and MM all present among the selected events; use linear coding or widen the selection.")
-            arr = np.array(text)
-            first = len(columns)
-            columns.append(np.isin(arr, ["PM", "MM"]).astype(float))
-            columns.append((arr == "MM").astype(float))
-            for j, (name, lab) in enumerate((("PP→PM", "PM − PP"), ("PM→MM", "MM − PM"))):
-                described.append({"key": key, "label": f"{info.get('label', key)} {name}", "kind": "step", "levels": list(order),
-                                  "columns": [first + j], "column_labels": [lab]})
-            continue
-        if order and set(levels) <= set(order) and len(levels) >= 2:
-            levels = [v for v in order if v in present]
-            pos = {v: 2 * i / (len(levels) - 1) - 1 for i, v in enumerate(levels)}
-            first = len(columns)
-            columns.append(np.array([pos[t] for t in text]))
-            described.append({"key": key, "label": info.get("label", key), "kind": "ordinal", "levels": levels,
-                              "columns": [first], "column_labels": [" < ".join(levels)]})
-            continue
         if len(levels) > MAX_LEVELS:
             raise ValueError(f"Factor {key!r} has {len(levels)} levels; TDR supports up to {MAX_LEVELS}.")
         first, ref = len(columns), levels[-1]
@@ -102,10 +78,10 @@ def axis_name(label):
     return re.sub(r"\s+", " ", str(label)).strip()
 
 
-def fit_axes(means, ids, rates, X, described, bins, scaling, dims=DENOISE_DIMS, world_coding="linear"):
+def fit_axes(means, ids, rates, X, described, bins, scaling, dims=DENOISE_DIMS):
     """Axes, coordinates and diagnostics.
 
-    ``means``  (groups, times, units) condition means, as :func:`imitation_phys.explorer_core.fit_basis` takes.
+    ``means``  (groups, times, units) condition means, as :func:`session_viewer.explorer_core.fit_basis` takes.
     ``rates``  (events, window bins, units) single-event rates for the events in ``X``.
     ``bins``   indices into the time axis that ``rates`` covers.
     """
@@ -168,4 +144,4 @@ def fit_axes(means, ids, rates, X, described, bins, scaling, dims=DENOISE_DIMS, 
             "component_r2": single, "cumulative_r2": cumulative,
             "tdr": {"factors": info, "regression_r2": r2_t.tolist(), "denoise_dims": npc,
                     "axis_cosines_before_orthogonalisation": cosines.tolist(), "events": int(n_rows),
-                    "coding": ("world: steps, PP→PM and PM→MM as two axes (coefficients PM−PP and MM−PM); " if world_coding == "steps" else "world: ordinal PP=-1, PM=0, MM=+1 (one linear column); ") + " other categorical factors: sum-to-zero (effect) coding, last level is the reference; numeric factors: z-scored"}}
+                    "coding": "categorical and boolean factors: sum-to-zero (effect) coding, last level is the reference; numeric factors: z-scored"}}

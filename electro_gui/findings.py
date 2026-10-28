@@ -1,15 +1,15 @@
 """Findings: saved explorer views that keep their picture, notes and the numbers they rest on.
 
 A finding is one JSON file, plus the figure as a PNG, in the findings folder
-(``--findings-dir``, default ``<Dropbox>/projects/electro_gui/output/findings``,
-see paths.py):
+(``--findings-dir``, default ``$ELECTRO_GUI_OUTPUT/findings``, else
+``~/electro_gui_output/findings``, see paths.py):
 
 * ``<id>.json`` is a config file (``electro_gui_config: 1``, see configs.py)
   holding ``title``, ``note`` and the page's view ``state``, so copying it into
   a deck's ``electro_gui_configs/`` makes it a slide config as it stands.  It
   adds ``tags``, a ``status`` (lead, checking, supported, dropped: the user's
   judgement, never set by the program), the ``evidence`` the page measured from
-  the drawn figure when it was saved (session, NWB checksum, unit identity,
+  the drawn figure when it was saved (session, session-file checksum, unit identity,
   events, trials and count-window rate per group, exclusions, fit diagnostics),
   and when, where and with which code it was saved.
 * ``<id>.png`` is the figure as Export -> PNG draws it, taken at the same moment.
@@ -17,11 +17,11 @@ see paths.py):
 The state and evidence never change after saving; only the title, note, tags
 and status can be edited, so a finding's numbers keep saying what was seen
 then.  The page measures the evidence again when a finding is reopened and
-reports every difference.  Nothing here reads an NWB.
+reports every difference.  Nothing here reads a session file.
 
 One file per finding, written atomically (temporary dotfile, then rename):
-two Macs sharing the folder through Dropbox only ever write the same file when
-they edit the same finding.  Deleting moves the files into ``.deleted/`` in the
+two machines sharing the folder (a synced or network folder) only ever write the
+same file when they edit the same finding.  Deleting moves the files into ``.deleted/`` in the
 same folder rather than erasing them.
 """
 from __future__ import annotations

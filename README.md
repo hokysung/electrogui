@@ -1,58 +1,61 @@
 # electro_gui
 
-An interactive raster / PSTH and population explorer for the imitation
-project's assembled session NWBs (`<sid>_session.nwb`, written by
-analysis_imitation's `assemble-session`): a raster over a PSTH with filters,
-grouping, sorting, markers and instant display knobs; a behavior timeline;
-findings (a saved figure with its notes, picture and numbers, re-checked when
-reopened); and a Population view that fits one PCA / ICA / FA / TDR basis
-across a neuron roster.  The full manual is
-[electro_gui/README.md](electro_gui/README.md) and the internals are in
+An interactive raster / PSTH and population explorer for Hokyung's oculomotor
+monkey sessions (fixation, memory saccade, pursuit, FEF microstimulation with
+ACC / DMFC recording): a raster over a PSTH with filters, grouping, sorting,
+markers and instant display knobs; a behavior timeline of trials, tasks, stim
+trains and events; findings (a saved figure with its notes, picture and
+numbers, re-checked when reopened); and a Population view that fits one
+PCA / ICA / FA / TDR basis across a neuron roster.  The manual is
+[electro_gui/README.md](electro_gui/README.md); the internals are in
 [electro_gui/DESIGN.md](electro_gui/DESIGN.md).
 
-Until 2026-10-09 this lived in the analysis_imitation repository; its history
-came with it.
+## Data
 
-## How it relates to analysis_imitation
+One file per session, `<root>/<Subject>_<YYYYMMDD>/session.h5`, exported on the
+cluster by phys-analysis's `session_viewer` package:
 
-electro_gui depends on analysis_imitation's `imitation_phys` package, and never
-the other way round.  It reads sessions through `imitation_phys.session_store`
-and draws its population view with `imitation_phys.explorer_core`, the same
-functions analysis_imitation's world-axis stages call, so a GUI export and the
-pipeline's reproduction of it cannot drift apart
-(`tests/test_electro_gui_world_axis_contract.py` checks the hand-off).  A
-change to either side that touches those modules should be tested in both
-repositories.
+```bash
+python -m session_viewer build /orcd/data/mjaz/001/om4/hokyung/monkey_data/Nielsen/20261015 \
+    --stream imec0:ms5_lar_v6:ACC --root ~/viewer_sessions
+```
+
+It holds the trial table (task, stim/sham, reward, targets, latencies), every
+event on the imec clock, the units (sua / mua / noise from UnitRefine, area,
+peak channel, depth), their spikes, and each unit's stable trials from the
+post-sorting stability check.  electro_gui only reads it.
 
 ## Install
 
-Into the `imitation-phys` conda environment, analysis_imitation first:
+electro_gui needs `session_viewer` (phys-analysis) importable, plus numpy,
+h5py, pandas, pyarrow, scikit-learn and matplotlib:
 
 ```bash
-pip install --no-deps --no-build-isolation -e ../analysis_imitation
-pip install --no-deps --no-build-isolation -e .
+pip install -e <phys-analysis>        # or: export PYTHONPATH=<phys-analysis>
+pip install -e .
 ```
 
 ## Run
 
 ```bash
-python -m electro_gui            # or: electro-gui
+ELECTRO_GUI_OUTPUT=~/electro_gui_output python -m electro_gui --data-root ~/viewer_sessions
 python -m electro_gui --lan      # token-protected, for a tablet or phone
 tailscale serve --bg --https=8765 http://127.0.0.1:8765   # tailnet, owner only, no token
 ```
 
-Sessions are discovered under `/Volumes/T7/engaging-results` and
-`/Volumes/Transfer/engaging_results` (`--data-root` / `--session-file` for
-others).  The stability cache and findings live in Dropbox,
-`<Dropbox>/projects/electro_gui/output/{cache,findings}`, and figure configs are
-read from analysis_imitation's presentation decks; see the folder table in
-[electro_gui/README.md](electro_gui/README.md) and `electro_gui/paths.py`.
+Session roots default to `$SESSION_VIEWER_ROOTS` (`:`-separated), else
+`~/viewer_sessions`; `--data-root` (repeatable) and `--session-file` add
+others.  The cache and findings go to `$ELECTRO_GUI_OUTPUT/{cache,findings}`,
+else `~/electro_gui_output/`.  Figure configs for the Views menu come only from
+`--config-dir`.  On a shared login node set
+`OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` first.
 
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -t . -v
+MPLBACKEND=Agg PYTHONPATH=.:<phys-analysis> python -m unittest discover -s tests -t . -v
 ```
 
-They build a synthetic session with `imitation_phys.synthetic_session`, so they
-need imitation_phys installed (above) and no experimental data.
+They build a synthetic session with `session_viewer.synthetic.write_session_file`
+(`tests/fixtures.py`) and need no experimental data; node, when installed, runs
+the browser-side checks of `static/core.js`.

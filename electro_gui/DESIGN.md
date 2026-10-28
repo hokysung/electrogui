@@ -1,136 +1,82 @@
-# electro_gui 0.1
+# electro_gui internals
 
-Promoted from the reviewed unit/population explorer design. A loopback HTTP
-application serves a local interface and computes from an exact assembled NWB.
-No experimental data are shipped in this package. Original design fixtures and
-reports remain unchanged under `output/unit_explorer_design/`.
+A loopback HTTP application serves a local interface and computes from one
+exact exported `session.h5`.  No experimental data are shipped in this package.
 
 ## Internal interfaces
 
-The session loader and the arithmetic the world-axis stages share live in the
-pipeline package, and electro_gui imports them: `imitation_phys.session_store`
-(the loader below) and `imitation_phys.explorer_core` (alignment rows, eligible
-spans, the time grid, rates, the basis fit and the stable roster).  No
-`imitation_phys` module imports `electro_gui`.
+The session loader and the explorer arithmetic live in phys-analysis's
+`session_viewer` package, and electro_gui imports them: `session_viewer.store`
+(the loader below), `session_viewer.explorer_core` (alignment rows, eligible
+spans, the time grid, rates, the basis fit and the stable roster) and
+`session_viewer.cache` (the identity every derived result is stamped with).
+No `session_viewer` module imports `electro_gui`.
 
-`imitation_phys.session_store.SessionStore(roots, session_files, cache_dir)` discovers only exact
-`<sid>/analysis/nwb/<sid>_session.nwb` products (explicit session files are also
-accepted). `catalog()` returns `{id, path}` entries. `get(session_id)` loads and
-validates the source lazily and returns a `LoadedSession`. Its interface is:
+`session_viewer.store.SessionStore(roots, session_files, cache_dir)` discovers
+`<root>/<Subject>_<YYYYMMDD>/session.h5` files (explicit session files are also
+accepted).  `catalog()` returns `{id, path}` entries, newest session first.
+`get(session_id)` opens the file lazily and returns a `LoadedSession`:
 
-- `session`: repository SessionFile, `session_id`, `duration_s`.
-- `trials`: list of JSON-safe `{id, start, stop, complete, world, intention,
-  block_id, success, reward_tokens, ...}` rows.
-- `rows`: JSON-safe event dictionaries with `row_id` (original source row),
-  `t`, `trial`, `event`, validity flags, object and enriched relationship fields.
-  Histories are derived before filtering, using actual outcome timestamps.
+- `file`: the `SessionFile`; `session`: its handle (`path`,
+  `source_identity()` -> `{path, size, sha256, ...}`); `session_id`,
+  `duration_s`, `cache_dir`, `code_paths`.
+- `trials`: JSON-safe `{id, start, stop, complete, initiated, fixated, task,
+  microstim, sham, rewarded, success, block_id, microstim_amplitude,
+  target_x, ...}` rows.
+- `rows`: one JSON-safe dict per recorded event: `row_id`, `t` (imec clock),
+  `trial`, `event`, validity flags, every trial column, `trial_start_t`,
+  `trial_end_t`, and the previous trial's `previous_task` / `previous_rewarded`.
 - `fields`: registry dictionaries `{key, label, type, availability, timing,
   values?, description, timing_description, category, value_counts,
   missing_count, cardinality, units, range?, grouping_requires_bins}`.
-  Canonical category domains include valid zero-support values. Unsupported
-  fields carry a reason and cannot be used silently. Numeric fields omit
-  per-value counts to bound metadata size.
-- `units`: dictionaries `{id, area, quality, n_spikes}` for every current unit.
-- `alignments`: strings of available events plus `object_outcome` union.
-- `alignment_fields`: corresponding `{key,label,category,description}` records.
-- `spikes(unit_id)`: sorted numpy array from the current NWB.
-- `eligibility(unit_ids, policy)`: `(set_of_common_trial_ids, provenance_dict)`.
-  Policy `verified_stable` recomputes/reuses content-bound stability; policy
-  `all_complete` deliberately performs no stability filtering.
-- `metadata()`: source, units, fields, alignments, counts and provenance for UI.
+- `units`: `{id, area, quality (sua|mua|noise), peak_channel, depth_um, n_spikes}`.
+- `alignments`: the recorded events plus the pooled `stim_train`
+  (`microstim` + `sham_microstim`, `explorer_core.UNION_ALIGNMENTS`).
+- `spikes(unit_id)`: the unit's spike times.
+- `eligibility(unit_ids, policy)`: `(set_of_common_trial_ids, provenance)`.
+  `verified_stable` intersects the units' stable trials from the post-sorting
+  stability check carried in the file; `all_complete` applies no stability
+  filter.
+- `metadata()`: source, units, fields, alignments, counts.
 
 `analysis.compute_unit(loaded, request)` and `population.compute_population`
 accept the same request: `{session_id, unit_id, alignment, pre, post, bin,
-sigma, count_window:[lo,hi], stability, recipe, test}`. Seconds throughout.
-Recipe has `shared:{mode,rules}`, `cohorts:[{id,name,mode,rules}]`, `facet`,
-`group_by`, `split_by`, `overlap`, `strata`, `gate`, and optional `group_bins`.
-`group_bins` maps numeric field names to finite strictly ascending edges.
-Bins are left-inclusive and right-exclusive except the final upper edge;
-out-of-range and missing values receive no numeric bin label. Raw fields and
-filter comparisons remain unchanged. Predicates use the reviewed
-typed operators. One or more explicitly named cohorts are allowed; tests use
-two. Default recipe compares world PP/PM/MM. Empty support is reported.
+sigma, count_window:[lo,hi], stability, recipe, test}`.  Seconds throughout.
+A recipe has `shared:{mode,rules}`, `cohorts:[{id,name,mode,rules}]`, `facet`,
+`group_by`, `split_by`, `overlap`, `strata` (`none`, `trial`, `task`), `gate`
+(`none`, `before_trial_end`) and optional `group_bins` (numeric field ->
+finite ascending edges; bins are `[a, b)` except the last).  The default recipe
+is one cohort per task the session lists.  Empty support is reported.
 
 `analysis.prepare_rows(loaded, request, unit_ids)` returns
 `(selected_rows, support, provenance)` and is shared by unit and population.
-Rows include cohort/facet/group identities and style metadata. Full display
-window plus a fixed 0.4 s support guard must fit in a contiguous eligible trial
-run and recording bounds; sigma is at most 0.1 s. Event count intervals are
-half-open. Unit result `{kind:'unit', session_id, unit, settings, times, edges,
-groups, rows, support, provenance, statistics}`. A group has `{name,label,
-color_key,line_dashed,facet_key,facet_value,trials,blocks,mean,sem}`. Rows include
-`count`, `rate`, `spikes` (relative display-window times), `group`, `trial`,
-`cohort`, `t`, `row_id`. PSTHs average events within trial then trials equally.
+The full display window plus a fixed 0.4 s guard must fit in a run of
+consecutive eligible trials inside the recording; sigma is at most 0.1 s.
+Count intervals are half-open.  PSTHs average events within trial, then trials
+equally.  Curve colours come from `analysis.COLORS` (tasks, stim / sham).
 
-Population request adds `unit_ids`, `method` (`pca`, `ica`, `fa`), `scaling`
-(`center`, `zscore`), `components` (2–10). Common eligible trials and exactly
-the same selected rows are used for every unit. Fit one basis to all displayed
-condition means jointly; this is descriptive in-sample analysis. Result has
-`kind:'population', times, groups:[{name,label,color_key,line_dashed,coordinates}],
-unit_ids, components, loadings, diagnostics, model, support, provenance,
-settings`. Coordinates are time × component. Export includes preprocessing,
-model operators, raw input condition means and exact membership.
+The explorer (`explorer.py`) supplies only what the browser cannot compute:
+the columnar alignment table, one unit's spikes around each row with its
+eligible span, event times for markers, a unit's whole spike train, the
+behavior timeline (every trial's span, task, reward, stim / sham, and every
+recorded event), stability bitmasks, and the population fit / probe
+(PCA / ICA / FA via `explorer_core.fit_basis`, or TDR via `tdr.py` with
+effect-coded categorical and boolean factors, default `task` x `microstim`).
 
 ## HTTP interface
 
-- `GET /api/catalog`: `{version,sessions,default_session}`.
-- `POST /api/jobs`: `{action:'load'|'unit'|'population'|'preview'|'annotate',
-  ...request}` → `{id}`.
-- `GET /api/jobs/<id>`: `{id,status:'queued'|'running'|'done'|'error',message,
-  result?,error?}`. UI polls and ignores superseded jobs.
+- `GET /api/catalog`: `{version, sessions, default_session}`.
+- `POST /api/jobs`: `{action: 'load'|'unit'|'population'|'preview'|'annotate'|'stable_selection', ...request}` -> `{id}`.
+- `GET /api/jobs/<id>`: `{id, status: 'queued'|'running'|'done'|'error', message, result?, error?}`.
 - `GET /api/jobs/<id>/export?format=json|csv|svg|membership|stats`: completed result download.
-  CSV is long-form unit PSTH or population coordinates; JSON is the complete
-  result including exact membership, statistics, source identity and recipe.
+- `GET /api/explorer/{session,table,raster,events,spiketrain,behavior,popspans,stability,stable_roster}`,
+  `POST /api/explorer/{popfit,popprobe}`: the explorer's synchronous reads.
+- `GET|POST /api/findings...`, `GET /api/configs`, `GET /api/health`, `POST /api/restart`.
 
-Previews use the same selection engine, without fitting or counting spikes.
-Their records are stored separately so frequent previews cannot evict completed
-analysis exports. Population previews report each selected unit's eligibility
-and the common trial intersection. Pending eligibility is not final support.
-
-Annotation layers use `{id,kind,name,source,visible,color,time?,event?,onset?,
-offset?,match,occurrence}`. Kinds are `reference`, `event`, and `interval`;
-the supported source is `recorded_events`. Matching is `same_object` or
-`same_trial`, occurrence is `first`, `last`, or `all`. Completed results retain
-per-row timings, endpoint identities, clipping and pairing diagnostics, and
-labeled distribution/occupancy summaries. An `annotate` job derives an exportable
-display result from a completed job without refitting or changing membership.
-
-The browser stores separate Unit and Population draft settings, revisions,
-pending work and completed results. Session identity remains shared. Copying
-settings creates an independent snapshot. Editing a draft labels its previous
-result explicitly; a failed computation preserves that result and its exports.
-Setup files store the complete active workspace and source identity; a separate
-conditions-only import leaves other controls unchanged.
-
-Static assets are local; no CDN, remote data or cluster. All exports describe
-the actual completed job, including the annotation definitions applied to it.
-
-
-## Usability implementation details
-
-The condition registry is shared by the strict backend validator and guided UI.
-Categorical sets use multi-selection, numeric ranges have separate bounds, and
-missingness needs no value. Session-wide category counts are labeled as such;
-selection support comes from debounced `prepare_rows` previews. Numeric grouping
-requires explicit finite ascending edges. Previews report per-group event, trial
-and block support, missing-rule events, exclusions, overlap, and per-test
-applicability. Population previews identify neurons that reduce the common trial
-intersection without dropping them.
-
-Each workspace owns an independent numerical revision and annotation revision.
-Async display updates check the source-load sequence, base result job and display
-revision before committing. A source reload clears both workspaces' source-bound
-plots and export handles. Preview polling coalesces edits; display-only annotation
-jobs retain the original computation identity and add a separate annotation
-identity. Completed plot annotations come from the completed result, not live
-draft definitions. Raster ticks and bands occupy their own event rows; a separate
-pooled strip shows event times or equal-anchor interval occupancy. Exact endpoints
-and diagnostics remain inspectable/exportable. Recorded joystick edges are not
-continuous-signal movement-bout detections.
-
-Version-2 setup imports are source-bound and validated atomically before restoring
-controls. Conditions-only import is intentionally separate. Question templates
-keep the current session and unit, and Population starts with an empty roster.
-Area/quality filters, replace/add selection, selected-only inspection, grouping
-disclosures, collapsible settings and a sticky Compute/support bar bound long
-forms at desktop and narrow widths.
+Every computed result carries `provenance.computation_identity`
+(`session_viewer.cache.computation_identity`: `{kind, schema, source:{path,
+size, sha256}, parameters, code}`) and its `computation_key`; a result whose
+source file or code changed while it ran is refused.  Annotation layers
+(`reference`, `event`, `interval`; source `recorded_events`; match
+`same_trial`) are display-only: an `annotate` job never changes membership or
+numbers.  Static assets are local; no CDN, remote data or cluster access.

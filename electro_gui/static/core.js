@@ -693,6 +693,8 @@
     if (!saved || !now) return ['The finding has no saved evidence to compare with.'];
     const out = [];
     if (saved.session_id !== now.session_id) out.push(`It was saved from session ${saved.session_id}; the figure shows ${now.session_id}.`);
+    if ((saved.sorting || null) !== (now.sorting || null))
+      out.push(`It was saved from sorting ${saved.sorting || 'default'}; the figure shows sorting ${now.sorting || 'default'}: unit IDs name other neurons.`);
     const a = (saved.source || {}).sha256, b = (now.source || {}).sha256;
     if (a && b && a !== b) out.push(`The session.h5 is not the file it was saved from (SHA256 ${a.slice(0, 12)}… then, ${b.slice(0, 12)}… now): unit IDs may name other neurons.`);
     else if (a && !b) out.push('The server did not report the session file checksum, so the file cannot be matched.');
@@ -751,7 +753,7 @@
     const words = String(text || '').toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) return true;
     const st = f.state || {}, ev = f.evidence || {}, u = ev.unit || {};
-    const hay = [f.title, f.note, ...(f.tags || []), f.status, st.session, `unit ${st.unit}`, u.peak_channel !== undefined && u.peak_channel !== null ? `ch ${u.peak_channel}` : '',
+    const hay = [f.title, f.note, ...(f.tags || []), f.status, st.session, st.sorting, `unit ${st.unit}`, u.peak_channel !== undefined && u.peak_channel !== null ? `ch ${u.peak_channel}` : '',
       u.area, st.align, humanize(st.align || ''), st.mode, ev.title, f.saved_on, f.saved_at].filter(Boolean).join(' \n ').toLowerCase();
     return words.every(w => hay.includes(w));
   }

@@ -28,6 +28,7 @@
     </nav>
     <div class="pickers">
       <label class="pick session-pick" title="Session"><select id="sessionSelect" aria-label="Session"><option>Loading…</option></select></label>
+      <label class="pick session-pick sorting-pick" id="sortingPick" title="Spike sorting of this session (unit IDs differ between sortings)" hidden><select id="sortingSelect" aria-label="Sorting"></select></label>
       <button class="pick roster-btn" id="rosterBtn" type="button" data-only="population" aria-haspopup="dialog" title="Choose the neurons in the population"><strong id="rosterLabel">no neurons</strong><span class="pick-label">▾</span></button>
       <div class="unit-pick" data-only="raster">
         <button class="icon-btn" id="prevUnit" type="button" aria-label="Previous unit" title="Previous unit (←)">‹</button>

@@ -102,7 +102,7 @@
   // ---------------------------------------------------------------- state
   const RASTER_MIN = 80, RASTER_MAX = 700, RASTER_FIT_MIN = 120, PSTH_MIN = 80, PSTH_MAX = 500;
   const DEFAULTS = {
-    session: null, unit: null, align: 'fix_on', policy: 'verified_stable',
+    session: null, sorting: null, unit: null, align: 'fix_on', policy: 'verified_stable',
     win: [-1.5, 1], cw: [-0.5, 0], bin: 0.02, sigma: 0.04, weight: 'event', err: 'sem',
     filters: [], color: 'task', style: null, panel: null, qbins: 3, hidden: [],
     sort: 'session', dir: 1, grouped: true, markers: [], refs: [], medians: true,
@@ -131,7 +131,7 @@
 
   const D = {
     catalog: [], summary: null, units: [], tables: new Map(), rasters: new Map(), events: new Map(),
-    inflight: new Map(), sessionToken: 0, layout: null, model: null, findings: [], configs: [], fatal: null,
+    inflight: new Map(), sessionToken: 0, sorting: null, layout: null, model: null, findings: [], configs: [], fatal: null,
     unitMap: new Map(), popspans: new Map(), stab: null, fits: new Map(), fitErrors: new Map(), fitPending: null,
     heatCache: new Map(), view3d: {yaw: -0.6, pitch: 0.35}, cursor: null, playTimer: 0, popLayout: null, popFit: null, popModel: null,
     probes: new Map(), probeErrors: new Map(), probePending: null, probeShown: null, popReq: null,
@@ -155,6 +155,7 @@
     });
   }
 
+  const SORTING_NAME = /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/;
   function sanitize(raw) {
     const s = {...clone(DEFAULTS), ...(raw && typeof raw === 'object' ? raw : {})};
     const pair = (v, d) => (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite) && v[0] < v[1] ? v : d);
@@ -173,6 +174,8 @@
     s.psthH = Number.isFinite(s.psthH) ? clamp(Math.round(s.psthH), PSTH_MIN, PSTH_MAX) : DEFAULTS.psthH;
     s.qbins = [2, 3, 4, 5].includes(Number(s.qbins)) ? Number(s.qbins) : 3;
     s.dir = s.dir === -1 ? -1 : 1;
+    // null: the session's default sorting (<sid>/session.h5); else a folder under <sid>/sortings/.
+    s.sorting = typeof s.sorting === 'string' && SORTING_NAME.test(s.sorting) ? s.sorting : null;
     if (!s.gstyle || typeof s.gstyle !== 'object' || Array.isArray(s.gstyle)) s.gstyle = {};
     for (const [k, allowed] of Object.entries({mode: ['raster', 'population'], method: ['pca', 'ica', 'fa', 'tdr'], scaling: ['zscore', 'center'], dims: ['2', '3'], heatNorm: ['z', 'peak'], cloudFit: ['traj', 'cloud']}))
       if (!allowed.includes(String(s[k]))) s[k] = DEFAULTS[k]; else s[k] = String(s[k]);
@@ -229,7 +232,8 @@
       return body;
     } finally { busy(-1); }
   }
-  const query = obj => Object.entries(obj).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+  // Every read names the session; an alternate sorting rides along (absent = the default sorting).
+  const query = obj => Object.entries(D.sorting && 'session' in obj ? {...obj, sorting: D.sorting} : obj).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
   function once(key, factory) {
     if (!D.inflight.has(key)) D.inflight.set(key, factory().finally(() => D.inflight.delete(key)));
     return D.inflight.get(key);
@@ -320,18 +324,45 @@
     if (token === D.sessionToken) { renderStructure(); schedule(); }
   }
 
-  async function selectSession(sid) {
+  // The sortings the catalog lists for a session: the default ({name: null}) first, then the alternates.
+  const sortingsOf = sid => ((D.catalog.find(s => s.id === sid) || {}).sortings || [{name: null, label: 'default', is_default: true}]);
+  const hasSorting = (sid, name) => sortingsOf(sid).some(o => (o.name || null) === (name || null));
+  const sortingText = o => `${o.label || o.name || 'default'}${o.is_default ? ' (default)' : ''}${Number.isInteger(o.n_units) ? ` · ${o.n_units} units` : ''}`;
+  // Session + sorting as figure subtitles and file names show it (the default sorting: the session ID alone, as before).
+  const sessionTitle = () => D.summary.session_id + (D.summary.sorting ? ` · ${D.summary.sorting_label || D.summary.sorting}` : '');
+  const sessionStem = () => D.summary.session_id + (D.summary.sorting ? `_${D.summary.sorting}` : '');
+  function renderSortingPicker() {
+    const list = sortingsOf(S.session), sel = $('sortingSelect');
+    sel.innerHTML = list.map(o => `<option value="${esc(o.name || '')}">${esc(sortingText(o))}</option>`).join('');
+    sel.value = S.sorting || '';
+    $('sortingPick').hidden = list.length < 2;
+  }
+  // Another sorting of the open session: unit IDs name other neurons there, so the unit and the roster start over.
+  function switchSorting(name) {
+    if ((name || null) === (S.sorting || null)) return;
+    S.unit = null; S.roster = [];
+    selectSession(S.session, name || null).then(renderStructure);
+  }
+
+  async function selectSession(sid, sorting = S.sorting) {
+    sorting = sorting || null;
+    if (sorting && !hasSorting(sid, sorting)) {
+      toast(`Session ${sid} has no sorting ${sorting}; showing its default sorting, from its first unit.`, true);
+      sorting = null; S.unit = null; S.roster = [];
+    }
     const token = ++D.sessionToken;
     if (S.session !== sid) S.pin = null;   // trial IDs belong to one session
     S.session = sid;
+    S.sorting = sorting; D.sorting = sorting;
     D.summary = null; D.tables.clear(); D.rasters.clear(); D.events.clear(); D.model = null;
     D.popspans.clear(); D.stab = null; D.fits.clear(); D.fitErrors.clear(); D.heatCache.clear(); D.popFit = null; D.popLayout = null; stopPlay();
     D.probes.clear(); D.probeErrors.clear(); D.probeShown = null;
     D.behavior = null; D.behaviorError = null; D.btC = null; D.btLayout = null; D.trains.clear(); D.trainErrors.clear();
     $('sessionSelect').value = sid;
-    showLoading(`Opening ${sid}`, 'The first open of a session reads and fingerprints its session.h5. After that, units, alignments and knobs respond immediately.');
+    renderSortingPicker();
+    showLoading(`Opening ${sid}${sorting ? ` · ${sorting}` : ''}`, 'The first open of a session reads and fingerprints its session.h5. After that, units, alignments and knobs respond immediately.');
     try {
-      const job = await getJSON('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'load', session_id: sid})});
+      const job = await getJSON('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'load', session_id: sid, ...(sorting ? {sorting} : {})})});
       const t0 = Date.now();
       for (;;) {
         const j = await getJSON(`/api/jobs/${job.id}`);
@@ -838,7 +869,7 @@
       $('bars').innerHTML = barsSVG(M, side ? barsW : Math.min(Math.max(260, width), 140 + 70 * M.visible.length), h);
       $('bars').style.marginTop = side ? `${barsTop}px` : '';
     } else $('bars').innerHTML = '';
-    $('foot').innerHTML = `Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · rows are events; half-open count window; ${S.policy === 'verified_stable' ? 'stability from the session file (post-sorting check, 0.4 s guard)' : 'no stability filter'} · electro_gui ${VERSION}`;
+    $('foot').innerHTML = `${D.summary.sorting ? `Sorting <b>${esc(D.summary.sorting_label || D.summary.sorting)}</b> · ` : ''}Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · rows are events; half-open count window; ${S.policy === 'verified_stable' ? 'stability from the session file (post-sorting check, 0.4 s guard)' : 'no stability filter'} · electro_gui ${VERSION}`;
   }
 
   function renderSupport(M) {
@@ -1333,9 +1364,11 @@
   async function applyConfig(title, raw) {
     const state = {};
     for (const k of Object.keys(DEFAULTS)) if (k in raw) state[k] = clone(raw[k]);
-    if (typeof state.session !== 'string') state.session = S.session;
+    if (typeof state.session !== 'string') { state.session = S.session; if (!('sorting' in state)) state.sorting = S.sorting; }
     if (!Number.isInteger(state.unit)) state.unit = S.unit;
     if (!state.session || !D.catalog.some(s => s.id === state.session)) { toast(`Config “${title}”: session ${state.session || '(none)'} is not available on this server.`, true); return false; }
+    // Unit IDs belong to one sorting: a config for a sorting this server lacks is refused, not drawn from another.
+    if (!hasSorting(state.session, state.sorting)) { toast(`Config “${title}”: session ${state.session} has no sorting ${state.sorting} on this server.`, true); return false; }
     toast(`Config: ${title}`);
     // Same session: a raster or table not fetched yet can take a minute while the old figure stays up under a 2 px bar.
     // A different session shows its own opening card straight away.
@@ -1399,7 +1432,7 @@
       in_hidden_groups: M.grouping.groups.filter(g => g.hidden).reduce((a, g) => a + g.rows.length, 0),
       ...(M.grouping.leftOut ? {no_stim_or_sham_train: M.grouping.leftOut} : {}),
       yoked_trials: M.yoke ? {first: M.yoke.from, last: M.yoke.to} : null};
-    const out = {schema: 1, mode: S.mode, session_id: D.summary.session_id, source: {sha256: src.sha256 || null, size_bytes: src.size_bytes ?? src.size ?? null},
+    const out = {schema: 1, mode: S.mode, session_id: D.summary.session_id, ...(D.summary.sorting ? {sorting: D.summary.sorting} : {}), source: {sha256: src.sha256 || null, size_bytes: src.size_bytes ?? src.size ?? null},
       title: D.figMeta.title, subtitle: D.figMeta.subtitle, alignment: S.align, policy: S.policy, window_s: S.win.slice(),
       count_window_s: S.cw.slice(), weighting: S.weight, support};
     if (!pop) {
@@ -1523,7 +1556,7 @@
 
   // Reopening.  The view is restored through the page's own checks, every setting it could not restore is listed,
   // and once the figure is drawn its numbers are measured again and compared with the saved ones.
-  const NOT_RESTORED = new Set(['session', 'unit', 'align', 'roster', 'mode']);
+  const NOT_RESTORED = new Set(['session', 'sorting', 'unit', 'align', 'roster', 'mode']);
   const STATE_LABELS = {align: 'alignment', roster: 'neurons', win: 'window', cw: 'count window', bin: 'bin width', sigma: 'smoothing σ',
     weight: 'averaging', err: 'error band', policy: 'trials', filters: 'filters', color: 'colour', style: 'line style', panel: 'panels',
     hidden: 'hidden groups', sort: 'row order', nsort: 'neuron order', axes: 'trajectory axes', ncomp: 'components', method: 'method'};
@@ -1535,6 +1568,11 @@
       renderFindingBar();
       return false;
     }
+    if (!hasSorting(f.state.session, f.state.sorting)) {
+      openedFinding = {finding: f, refused: `Its sorting ${f.state.sorting} of session ${f.state.session} is not on this server, so nothing was changed.`};
+      renderFindingBar();
+      return false;
+    }
     const state = {};   // keys this version knows; any other is reported, as a config file's would be dropped
     for (const k of Object.keys(DEFAULTS)) if (k in f.state) state[k] = clone(f.state[k]);
     openedFinding = {finding: f, pending: true, changes: [], diff: null};
@@ -1542,7 +1580,7 @@
     $('empty').hidden = true;   // the previous view's empty card is not this finding's
     stopPlay(); hideTip();
     S = sanitize(state);
-    if (!D.summary || D.summary.session_id !== S.session) { saveState(); await selectSession(S.session); renderStructure(); }
+    if (!D.summary || D.summary.session_id !== S.session || (D.summary.sorting || null) !== S.sorting) { saveState(); await selectSession(S.session, S.sorting); renderStructure(); }
     else { fitStateToSession(D.summary); afterBigChange(); }
     schedule();
     return true;
@@ -1623,16 +1661,17 @@
   }
 
   function applyTemplate(t) {
-    const keep = {session: S.session, unit: S.unit, policy: S.policy, unitQ: S.unitQ, unitArea: S.unitArea, tick: S.tick, rasterH: S.rasterH, rasterFit: S.rasterFit, psthH: S.psthH, bars: S.bars, err: S.err,
+    const keep = {session: S.session, sorting: S.sorting, unit: S.unit, policy: S.policy, unitQ: S.unitQ, unitArea: S.unitArea, tick: S.tick, rasterH: S.rasterH, rasterFit: S.rasterFit, psthH: S.psthH, bars: S.bars, err: S.err,
       mode: S.mode, roster: S.roster, method: S.method, scaling: S.scaling, ncomp: S.ncomp, tdrFactors: S.tdrFactors, tdrWin: S.tdrWin, dims: S.dims, heatNorm: S.heatNorm, nsort: S.nsort, axes: S.axes, popSplit: S.popSplit};
     S = sanitize({...clone(DEFAULTS), ...keep, ...clone(t.state)});
     afterBigChange();
     toast(`Template: ${t.name}`);
   }
   async function applyView(v) {
-    const sessionChanged = v.state.session && v.state.session !== S.session;
+    const was = {session: S.session, sorting: S.sorting};
     S = sanitize(clone(v.state));
-    if (sessionChanged) { saveState(); await selectSession(S.session); renderStructure(); }
+    const sessionChanged = (v.state.session && v.state.session !== was.session) || S.sorting !== was.sorting;
+    if (sessionChanged) { saveState(); await selectSession(S.session, S.sorting); renderStructure(); }
     else afterBigChange();
   }
   function afterBigChange() {
@@ -1710,12 +1749,14 @@
       `<button type="button" class="item" data-menu="export"><span class="main"><b>Export</b><small>SVG, PNG, CSV, settings</small></span></button>` +
       `<button type="button" class="item" data-menu="restart"><span class="main"><b>Restart server</b><small id="restartInfo">load the code now on disk, then reload this page</small></span></button><div class="editor">` +
       `<label class="row"><span>Session</span><select id="menuSession">${D.catalog.map(s => `<option value="${esc(s.id)}"${s.id === S.session ? ' selected' : ''}>${esc(shortSession(s.id))}</option>`).join('')}</select></label>` +
+      (sortingsOf(S.session).length > 1 ? `<label class="row"><span>Sorting</span><select id="menuSorting">${sortingsOf(S.session).map(o => `<option value="${esc(o.name || '')}"${(o.name || null) === S.sorting ? ' selected' : ''}>${esc(sortingText(o))}</option>`).join('')}</select></label>` : '') +
       `<div class="row"><span>Theme</span><div class="seg" id="themeSeg">${['auto', 'light', 'dark'].map(t => `<button type="button" data-theme="${t}" class="${theme === t ? 'on' : ''}">${t}</button>`).join('')}</div></div>` +
       `<p class="pop-note" style="padding:0"><b>Shortcuts</b> — ← / → previous / next unit · drag across the PSTH to set the count window · click a legend entry to hide a group, double-click to show only it.</p>` +
-      `<p class="pop-note" style="padding:0">${D.summary ? `${esc(D.summary.session_id)} · ${D.summary.counts.units} units · ${D.summary.counts.trials} trials<br><code>${esc(D.summary.source.path || '')}</code>` : ''}</p>` +
+      `<p class="pop-note" style="padding:0">${D.summary ? `${esc(sessionTitle())} · ${D.summary.counts.units} units · ${D.summary.counts.trials} trials<br><code>${esc(D.summary.source.path || '')}</code>` : ''}</p>` +
       `</div></div>`;
     openPop($('menuBtn'), html);
-    $('menuSession').addEventListener('change', e => { closePop(); selectSession(e.target.value).then(renderStructure); });
+    $('menuSession').addEventListener('change', e => { closePop(); selectSession(e.target.value, null).then(renderStructure); });
+    if (document.getElementById('menuSorting')) $('menuSorting').addEventListener('change', e => { closePop(); switchSorting(e.target.value); });
     serverHealth().then(h => {
       const el = document.getElementById('restartInfo');
       if (!el || !h) return;
@@ -1926,7 +1967,7 @@
   }
 
   function fitRequest(M) {
-    return {session_id: S.session, unit_ids: S.roster.slice(), alignment: S.align, policy: S.policy,
+    return {session_id: S.session, ...(D.sorting ? {sorting: D.sorting} : {}), unit_ids: S.roster.slice(), alignment: S.align, policy: S.policy,
       pre: S.win[0], post: S.win[1], bin: S.bin, sigma: S.sigma, weight: S.weight, method: S.method,
       scaling: S.scaling, components: nComp(),
       ...(S.method === 'tdr' ? {factors: S.tdrFactors.slice(), tdr_window: tdrWindow()} : {}),
@@ -2455,7 +2496,7 @@
     mountPopFigure(fig, svg, layout);
     D.figMeta = {title: $('title').textContent, subtitle: $('subtitle').textContent, width};
     drawCursor();
-    $('foot').innerHTML = `Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · condition means per group, ${S.method === 'tdr' ? `one axis per factor: regression of single-event rates on the factors (categories and booleans effect-coded, numbers z-scored), read at each factor's peak time, denoised in the leading PC subspace and orthogonalised by QR` : `one joint ${S.method.toUpperCase()} basis (sklearn) · component signs set so each component's largest loading is positive`} · electro_gui ${VERSION}`;
+    $('foot').innerHTML = `${D.summary.sorting ? `Sorting <b>${esc(D.summary.sorting_label || D.summary.sorting)}</b> · ` : ''}Source <code>${esc(D.summary.source.path || '')}</code> · SHA256 <code>${esc(String(D.summary.source.sha256 || '').slice(0, 12))}…</code> · condition means per group, ${S.method === 'tdr' ? `one axis per factor: regression of single-event rates on the factors (categories and booleans effect-coded, numbers z-scored), read at each factor's peak time, denoised in the leading PC subspace and orthogonalised by QR` : `one joint ${S.method.toUpperCase()} basis (sklearn) · component signs set so each component's largest loading is positive`} · electro_gui ${VERSION}`;
   }
   function rerenderPopFigure() {
     const M = D.popModel, fit = D.popFit;
@@ -2575,7 +2616,7 @@
   }
 
   function popProvenance(M, fit) {
-    return {tool: `electro_gui ${VERSION} explorer · population`, generated: new Date().toISOString(), session_id: D.summary.session_id,
+    return {tool: `electro_gui ${VERSION} explorer · population`, generated: new Date().toISOString(), session_id: D.summary.session_id, sorting: D.summary.sorting || null,
       source: D.summary.source, alignment: S.align, policy: S.policy, unit_ids: S.roster.slice(),
       active_unit_ids: fit.active_unit_ids, dropped_constant_units: fit.dropped_constant_units, method: fit.method, scaling: fit.scaling,
       components: fit.components, component_r2: fit.component_r2, cumulative_r2: fit.cumulative_r2, explained_variance_ratio: fit.explained_variance_ratio,
@@ -2585,12 +2626,12 @@
   }
   function popExportSVG() {
     const width = Math.max(900, D.figMeta.width);
-    return popFigureSVG(D.popModel, D.popFit, width, {export: true, title: D.figMeta.title, subtitle: `${D.summary.session_id} · ${D.figMeta.subtitle}`}).svg;
+    return popFigureSVG(D.popModel, D.popFit, width, {export: true, title: D.figMeta.title, subtitle: `${sessionTitle()} · ${D.figMeta.subtitle}`}).svg;
   }
   async function popExport(kind) {
     const M = D.popModel, fit = D.popFit;
     if (!M || !fit || S.mode !== 'population' || !D.popLayout) { toast('Nothing to export yet.', true); return; }
-    const stem = `${D.summary.session_id}_population_${S.roster.length}neurons_${S.align}_${S.method}`;
+    const stem = `${sessionStem()}_population_${S.roster.length}neurons_${S.align}_${S.method}`;
     const names = [...Array(fit.components).keys()].map(k => compName(k, fit.method));
     if (kind === 'svg') download(`${stem}.svg`, new Blob([popExportSVG()], {type: 'image/svg+xml'}));
     else if (kind === 'png') await pngFromSVG(popExportSVG(), `${stem}.png`);
@@ -2628,7 +2669,7 @@
 
   // --------------------------------------------------------------- export
   function provenance(M) {
-    return {tool: `electro_gui ${VERSION} explorer`, generated: new Date().toISOString(), session_id: D.summary.session_id,
+    return {tool: `electro_gui ${VERSION} explorer`, generated: new Date().toISOString(), session_id: D.summary.session_id, sorting: D.summary.sorting || null,
       source: D.summary.source, unit: M.unit, alignment: S.align, policy: S.policy, guard_s: C.GUARD_S,
       yoked_trials: M.yoke ? {first: M.yoke.from, last: M.yoke.to, n: M.yoke.last - M.yoke.first + 1} : null,
       events_shown: M.visible.reduce((a, g) => a + g.rows.length, 0), state: S};
@@ -2641,12 +2682,12 @@
   }
   function fileStem() {
     const u = D.model && D.model.unit;
-    return `${D.summary.session_id}_unit${String(S.unit).padStart(4, '0')}${u && u.peak_channel !== null && u.peak_channel !== undefined ? `_ch${u.peak_channel}` : ''}_${S.align}`;
+    return `${sessionStem()}_unit${String(S.unit).padStart(4, '0')}${u && u.peak_channel !== null && u.peak_channel !== undefined ? `_ch${u.peak_channel}` : ''}_${S.align}`;
   }
   function exportSVG() {
     const M = D.model;
     const width = Math.max(720, D.figMeta.width);
-    const {svg, layout} = figureSVG(M, width, {export: true, title: D.figMeta.title, subtitle: `${D.summary.session_id} · ${D.figMeta.subtitle}`});
+    const {svg, layout} = figureSVG(M, width, {export: true, title: D.figMeta.title, subtitle: `${sessionTitle()} · ${D.figMeta.subtitle}`});
     if (!S.bars) return svg;
     const bw = 230, bh = Math.min(360, Math.max(240, layout.height * 0.5));
     const bars = barsSVG(M, bw, bh).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
@@ -3319,7 +3360,8 @@
   }
 
   function bindControls() {
-    $('sessionSelect').addEventListener('change', e => selectSession(e.target.value).then(renderStructure));
+    $('sessionSelect').addEventListener('change', e => selectSession(e.target.value, null).then(renderStructure));
+    $('sortingSelect').addEventListener('change', e => switchSorting(e.target.value));
     $('prevUnit').addEventListener('click', () => stepUnit(-1));
     $('nextUnit').addEventListener('click', () => stepUnit(1));
     $('unitBtn').addEventListener('click', () => D.units.length && openUnitPicker());
@@ -3644,7 +3686,7 @@
       if (await openFindingLink()) return;
       const sid = D.catalog.some(s => s.id === S.session) ? S.session : cat.default_session;
       if (!sid) { showEmpty('No sessions found', 'Export one with `python -m session_viewer build …` (phys-analysis) into ~/viewer_sessions, or start electro_gui with --data-root or --session-file.'); return; }
-      await selectSession(sid);
+      await selectSession(sid, sid === S.session ? S.sorting : null);
       renderStructure();
     } catch (e) {
       showEmpty('Cannot reach electro_gui', esc(e.message));
@@ -3662,9 +3704,9 @@
     try {
       const next = sanitize(C.decodeState(m[1]));
       if (JSON.stringify(next) === JSON.stringify(S)) return;
-      const sessionChanged = next.session !== S.session;
+      const sessionChanged = next.session !== S.session || next.sorting !== S.sorting;
       S = next;
-      if (sessionChanged) selectSession(S.session).then(renderStructure); else afterBigChange();
+      if (sessionChanged) selectSession(S.session, S.sorting).then(renderStructure); else afterBigChange();
     } catch (e) { /* ignore foreign hashes */ }
   });
   start();

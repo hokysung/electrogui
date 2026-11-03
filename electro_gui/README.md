@@ -27,6 +27,21 @@ else `$SESSION_VIEWER_ROOTS` (`:`-separated), else `~/viewer_sessions`;
 `--session-file` adds one file.  A file whose embedded session ID differs from
 its folder name is refused.
 
+**Sortings.**  `<sid>/session.h5` is the session's default spike sorting.  Other
+sortings of the same recording, exported the same way, sit at
+`<sid>/sortings/<name>/session.h5` (`<name>` the sorting config, e.g.
+`ms5_lar_v6`); one is listed only when its `session.h5` exists, and the
+`sortings` folder is never taken for a session.  When a session has more than
+one, a **sorting** picker appears beside the session (in the ⋯ menu on a
+phone), labelled from the file's `meta["streams"]` (one name, or
+`imec0 a · imec1 b`), the default marked *(default)*.  Switching reloads
+everything from that file and starts from its first unit: unit IDs differ
+between sortings.  The view state (`#s=…` links, configs, findings) carries
+`sorting` (absent or `null` = the default, so older links and findings mean the
+default); results, exports and findings record it, a finding or config for a
+sorting the server lacks is refused, and a finding's evidence must come from
+the sorting its state names.  `--session-file` sessions have only their default.
+
 **Folders** (`electro_gui/paths.py`):
 
 | what | default |
@@ -191,7 +206,10 @@ and `POST /api/explorer/popfit|popprobe`; `POST /api/jobs` (`load`, `unit`,
 `population`, `preview`, `annotate`, `stable_selection`) with `GET /api/jobs/<id>`
 and `/api/jobs/<id>/export?format=json|csv|svg|membership|stats`;
 `GET /api/configs`; `GET|POST /api/findings…`.  A session must first be opened
-with a `load` job.  Responses are gzip-compressed when the client accepts it.
+with a `load` job.  The catalog lists each session's `sortings`
+(`{name, label, is_default, n_units, path}`, default first with `name: null`); every
+explorer read takes an optional `sorting=<name>` query parameter and every job or
+pop fit an optional `"sorting"` (absent = the default).  Responses are gzip-compressed when the client accepts it.
 Details in [DESIGN.md](DESIGN.md).
 
 ## Verification

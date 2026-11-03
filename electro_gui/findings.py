@@ -9,7 +9,7 @@ A finding is one JSON file, plus the figure as a PNG, in the findings folder
   a deck's ``electro_gui_configs/`` makes it a slide config as it stands.  It
   adds ``tags``, a ``status`` (lead, checking, supported, dropped: the user's
   judgement, never set by the program), the ``evidence`` the page measured from
-  the drawn figure when it was saved (session, session-file checksum, unit identity,
+  the drawn figure when it was saved (session, sorting, session-file checksum, unit identity,
   events, trials and count-window rate per group, exclusions, fit diagnostics),
   and when, where and with which code it was saved.
 * ``<id>.png`` is the figure as Export -> PNG draws it, taken at the same moment.
@@ -186,6 +186,9 @@ class FindingStore:
             raise ValueError("A finding needs the view state, including its session.")
         if not isinstance(evidence, dict) or evidence.get("session_id") != state["session"]:
             raise ValueError("A finding's evidence must be measured from the session its state names.")
+        # Unit IDs belong to one sorting (sortings.py): no sorting key, or null, is the session's default sorting.
+        if (state.get("sorting") or None) != (evidence.get("sorting") or None):
+            raise ValueError("A finding's evidence must be measured from the sorting its state names.")
         png = _png(payload["thumbnail"]) if payload.get("thumbnail") is not None else None
         finding_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(3)}"
         record = {"electro_gui_config": CONFIG_VERSION, "title": clean_title(payload.get("title")),

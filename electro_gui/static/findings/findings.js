@@ -77,7 +77,7 @@
     return `<button type="button" class="fcard${st === 'dropped' ? ' dropped' : ''}" data-id="${esc(f.id)}">` +
       `<div class="thumb">${f.has_thumbnail ? `<img loading="lazy" alt="" src="/api/findings/${encodeURIComponent(f.id)}/thumbnail">` : '<span>no picture</span>'}</div>` +
       `<div class="fc-body"><div class="fc-top"><span class="st st-${st}">${st}</span><b>${esc(f.title)}</b></div>` +
-      `<small>${esc(shortSession((f.state || {}).session))} · ${esc(what(f))}</small>` +
+      `<small>${esc(shortSession((f.state || {}).session))}${(f.state || {}).sorting ? ` · ${esc(f.state.sorting)}` : ''} · ${esc(what(f))}</small>` +
       (f.note ? `<div class="fc-note">${esc(f.note)}</div>` : '') + (tags ? `<div class="fc-tags">${tags}</div>` : '') +
       `<small>saved ${esc(when(f.saved_at))}${f.saved_on ? ` on ${esc(f.saved_on)}` : ''}${f.updated_at ? ` · edited ${esc(when(f.updated_at))}` : ''}</small></div></button>`;
   }
@@ -107,7 +107,7 @@
     const code = f.code || {};
     return `<div class="fd-sec"><h3>Saved evidence · as measured when it was saved, never edited</h3>` +
       `<p><b>${esc(ev.title || '')}</b>${ev.subtitle ? ` — ${esc(ev.subtitle)}` : ''}</p>` +
-      `<p>${esc(st.session || '')} · session SHA256 <code>${esc(String(src.sha256 || 'not recorded').slice(0, 16))}${src.sha256 ? '…' : ''}</code>${(src.size_bytes || src.size) ? ` · ${((src.size_bytes || src.size) / 1e9).toFixed(2)} GB` : ''}</p>` +
+      `<p>${esc(st.session || '')}${st.sorting ? ` · sorting ${esc(st.sorting)}` : ''} · session SHA256 <code>${esc(String(src.sha256 || 'not recorded').slice(0, 16))}${src.sha256 ? '…' : ''}</code>${(src.size_bytes || src.size) ? ` · ${((src.size_bytes || src.size) / 1e9).toFixed(2)} GB` : ''}</p>` +
       `<p>${esc(who)}</p><p>${esc(supportBits.join(' · '))}</p>` +
       (rows ? `<table class="fd-table"><thead><tr><th>group</th><th class="n">events</th><th class="n">trials</th>${rates ? `<th class="n">count window ${esc(cw)}, spikes/s (mean ± SEM)</th>` : ''}</tr></thead><tbody>${rows}</tbody></table>` : '') +
       fit + `<p>Saved ${esc(when(f.saved_at))}${f.saved_on ? ` on ${esc(f.saved_on)}` : ''} with electro_gui ${esc(code.electro_gui || '?')}` +

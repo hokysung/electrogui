@@ -31,9 +31,9 @@ RESTART_ENV = "ELECTRO_GUI_RESTART"
 
 def add_arguments(parser):
     parser.add_argument("--version", action="version", version=f"electro_gui {__version__}")
-    parser.add_argument("--data-root", action="append", help="Folder of <Subject>_<YYYYMMDD>/session.h5 exports; repeat for several "
+    parser.add_argument("--data-root", action="append", help="Folder of <Subject>_<YYYYMMDD>/session.h5 exports (other sortings in <sid>/sortings/<name>/); repeat for several "
                         f"(default: ${ROOTS_ENV}, else ~/viewer_sessions).")
-    parser.add_argument("--session-file", action="append", help="One exported session.h5; repeat to add sessions.")
+    parser.add_argument("--session-file", action="append", help="One exported session.h5 (its default sorting only); repeat to add sessions.")
     parser.add_argument("--cache-dir", help=f"Disposable derived-result cache (default: ${OUTPUT_ENV}/cache, else ~/electro_gui_output/cache).")
     parser.add_argument("--port", type=int, default=8765, help="Port; 0 chooses a free port (default: %(default)s).")
     parser.add_argument("--host", default="127.0.0.1",
@@ -71,10 +71,10 @@ def run(args):
         args.port, args.no_browser = int(restart["port"]), True
     cache_dir, findings_dir, config_dirs = _folders(args)
     os.environ.setdefault("MPLCONFIGDIR", str(cache_dir / "matplotlib"))
-    from session_viewer.store import SessionStore
     from .server import Application, Tailnet, make_server
+    from .sortings import SortingStore
     roots = args.data_root if args.data_root is not None else default_roots()
-    store = SessionStore(roots=roots, session_files=args.session_file or [], cache_dir=cache_dir)
+    store = SortingStore(roots=roots, session_files=args.session_file or [], cache_dir=cache_dir)
     application = Application(store, findings_dir=findings_dir, config_dirs=config_dirs)
     host = "0.0.0.0" if args.lan else args.host
     token = args.token  # optional on loopback: tailscale serve lets this node's owner in without one (server.Tailnet)

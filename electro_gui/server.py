@@ -30,11 +30,14 @@ from .annotations import annotate_result
 from .configs import discover_configs
 from .findings import FindingStore
 from .preview import preview
+from .sortings import SortingStore, normalize_sorting
 from . import explorer
 
 
 class Application:
     def __init__(self, store: SessionStore, findings_dir: str | Path | None = None, config_dirs=()):
+        if type(store) is SessionStore:   # a plain store: the same sessions, plus their alternate sortings
+            store = SortingStore(store.roots, store.session_files, store.cache_dir)
         self.store = store
         self.findings = FindingStore(findings_dir) if findings_dir is not None else None
         self.config_dirs = [Path(d).expanduser().absolute() for d in config_dirs or ()]
@@ -44,6 +47,24 @@ class Application:
         self.store_lock = threading.RLock()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="electro-compute")
         self.preview_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="electro-preview")
+
+    def load(self, session_id, sorting=None):
+        """One sorting of a session: ``sorting`` None (or absent) is the default ``<sid>/session.h5``."""
+        sorting = normalize_sorting(sorting)
+        if sorting is None:
+            return self.store.get(session_id)
+        if not isinstance(self.store, SortingStore):
+            raise KeyError(f"session {session_id} has no sorting {sorting!r}")
+        return self.store.get(session_id, sorting)
+
+    def catalog(self):
+        """``/api/catalog``: every session, newest first, each with its ``sortings`` (default first)."""
+        if isinstance(self.store, SortingStore):
+            sessions = self.store.catalog_with_sortings()
+        else:
+            sessions = [dict(e, sortings=[{"name": None, "label": "default", "is_default": True, "n_units": None,
+                                           "path": e["path"]}]) for e in self.store.catalog()]
+        return {"version": __version__, "sessions": sessions, "default_session": sessions[0]["id"] if sessions else None}
 
     def submit(self, request):
         action = request.get("action")
@@ -60,9 +81,20 @@ class Application:
             base_session = base["result"].get("session_id")
             if request.get("session_id") is not None and request.get("session_id") != base_session:
                 raise ValueError("Annotation session_id must match the completed result session.")
+            base_sorting = base["result"].get("sorting")
+            if "sorting" in request and normalize_sorting(request.get("sorting")) != base_sorting:
+                raise ValueError("Annotation sorting must match the completed result's sorting.")
             request = dict(request, session_id=base_session, _base_result=base["result"])
+            request.pop("sorting", None)
+            if base_sorting is not None:
+                request["sorting"] = base_sorting
         if not isinstance(request.get("session_id"), str):
             raise ValueError("Select a session before computing.")
+        # The default sorting keeps today's request (no key), so its computation identities are unchanged.
+        sorting = normalize_sorting(request.get("sorting"))
+        request = {k: v for k, v in request.items() if k != "sorting"}
+        if sorting is not None:
+            request["sorting"] = sorting
         target = self.preview_jobs if action == "preview" else self.jobs
         with self.lock:
             if sum(j["status"] in ("queued", "running") for j in target.values()) >= (2 if action == "preview" else 4):
@@ -97,7 +129,7 @@ class Application:
             job.update(status="running", message="Loading the session file; the first load reads its complete fingerprint.")
         self.store_lock.acquire()
         try:
-            loaded = self.store.get(request["session_id"])
+            loaded = self.load(request["session_id"], request.get("sorting"))
             if request["action"] == "load":
                 result = loaded.metadata()
             elif request["action"] == "stable_selection":
@@ -107,7 +139,8 @@ class Application:
                 result = select_stable_population(loaded)
             elif request["action"] == "annotate":
                 base_result = request.get("_base_result")
-                if not isinstance(base_result, dict) or base_result.get("session_id") != loaded.session_id:
+                if not isinstance(base_result, dict) or base_result.get("session_id") != loaded.session_id \
+                        or base_result.get("sorting") != getattr(loaded, "sorting", None):
                     raise ValueError("Annotation source session does not match the completed result.")
                 base_sha = base_result.get("provenance", {}).get("computation_identity", {}).get("source", {}).get("sha256")
                 current_sha = loaded.session.source_identity().get("sha256")
@@ -150,6 +183,9 @@ class Application:
                                   upstream_freshness="not audited; the exact exported session.h5 is the empirical source",
                                   repository=_git_identity(_REPO),
                                   session_viewer_repository=_session_viewer_identity())
+            if isinstance(result, dict) and result.get("kind") in ("unit", "population"):
+                # Unit IDs belong to one sorting: every result says which (None: the default).
+                result["sorting"] = getattr(loaded, "sorting", None)
             # Reject nonfinite / unserializable payloads before claiming completion.
             json.dumps(result, allow_nan=False)
             with self.lock:
@@ -167,7 +203,7 @@ class Application:
             job.update(status="running", message="Preparing selection support; no spikes, counts, fits, or tests are computed.")
         self.store_lock.acquire()
         try:
-            loaded = self.store.get(request["session_id"])
+            loaded = self.load(request["session_id"], request.get("sorting"))
             result = preview(loaded, request)
             result.setdefault("provenance", {}).update(source_identity=loaded.session.source_identity(), source_path=str(loaded.session.path))
             with self.lock:
@@ -186,9 +222,11 @@ class Application:
                 raise ValueError(f"Missing query parameter {name!r}.")
             return value
         with self.store_lock:
-            loaded = self.store.get(one("session"))
+            loaded = self.load(one("session"), query.get("sorting", [None])[0])
             if what == "session":
-                return explorer.session_summary(loaded)
+                sorting = getattr(loaded, "sorting", None)
+                return dict(explorer.session_summary(loaded), sorting=sorting,
+                            sorting_label=getattr(loaded, "sorting_label", None))
             if what == "table":
                 return explorer.alignment_table(loaded, one("alignment"))
             if what == "raster":
@@ -228,12 +266,12 @@ class Application:
 
     def population_fit(self, request):
         with self.store_lock:
-            loaded = self.store.get(request.get("session_id"))
+            loaded = self.load(request.get("session_id"), request.get("sorting"))
             return explorer.population_fit(loaded, request)
 
     def population_probe(self, request):
         with self.store_lock:
-            loaded = self.store.get(request.get("session_id"))
+            loaded = self.load(request.get("session_id"), request.get("sorting"))
             return explorer.population_probe(loaded, request)
 
     def _findings(self):
@@ -496,9 +534,7 @@ def make_server(application, host="127.0.0.1", port=8765, token=None, tailnet=No
             url = urlsplit(self.path)
             try:
                 if url.path == "/api/catalog":
-                    sessions = application.store.catalog()
-                    self._send({"version": __version__, "sessions": sessions,
-                                "default_session": sessions[0]["id"] if sessions else None})
+                    self._send(application.catalog())
                 elif url.path == "/api/health":
                     self._send({"version": __version__, "boot": BOOT_ID, "started": STARTED, "pid": os.getpid(),
                                 "code_changed": code_changed_since()})

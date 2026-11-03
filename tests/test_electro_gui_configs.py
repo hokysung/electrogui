@@ -266,7 +266,7 @@ class ConfigDriftTests(unittest.TestCase):
         block = source[source.index("const TEMPLATES = ["):source.index("const D = {")]
         aligns = re.findall(r"align: '([a-z_]+)'", block)
         self.assertEqual(aligns, ["stimuli_on", "stim_train", "reward", "fix_on", "pursuit_start"])
-        self.assertEqual(re.findall(r"color: '([a-z_]+)'", block), ["task", "microstim", "task", "rewarded", "task"])
+        self.assertEqual(re.findall(r"color: '([a-z_]+)'", block), ["task", "stim_condition", "task", "rewarded", "task"])
         self.assertNotRegex(block, r"unit:\s*\d")   # templates keep the current unit
         defaults = js_defaults()
         keys = set(re.findall(r"\b([a-z][A-Za-z]*):", block)) - {"name", "hint", "state", "e", "match", "occ", "label", "c", "k", "v", "id"}
@@ -278,7 +278,7 @@ class ConfigDriftTests(unittest.TestCase):
         self.assertEqual(defaults["nsort"], "loading:0")
         self.assertEqual(defaults["align"], "fix_on")
         self.assertEqual((defaults["color"], defaults["style"]), ("task", None))
-        self.assertEqual(defaults["tdrFactors"], ["task", "microstim"])
+        self.assertEqual(defaults["tdrFactors"], ["task", "stim_condition"])
         self.assertNotIn("worldCoding", defaults)
         self.assertIs(defaults["bt"], True)
         good = {"session": "s", "unit": 3, "align": "stimuli_on", "win": [-1, 1.5], "cw": [0.05, 0.25], "bin": 0.02, "sigma": 0,

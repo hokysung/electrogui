@@ -48,6 +48,11 @@ SPIKE_TRAIN_TICK_S = 1e-4  # behavior timeline lane: far below one pixel at its 
 # are constant by construction in a table of complete, in-recording rows.
 _SKIP = {"row_id", "t", "session_time", "trial_index", "object_uid", "event", "complete",
          "within_ephys_recording", "within_sync_fit_window"}
+# Stim comparisons are stim against sham.  session_viewer's ``stim_condition`` (stim / sham, empty on
+# trials with no train) carries that; the raw flags would set stim against sham *plus* no-train trials
+# (``microstim``) or sham against the rest (``sham``, ``sham_trial``), so they are not offered as columns.
+STIM_CONDITION = "stim_condition"
+_STIM_FLAGS = {"microstim", "sham", "sham_trial"}
 _MAX_LEVELS = 400      # free-text columns (paths, sequences) are not useful to group by
 
 
@@ -108,10 +113,11 @@ def alignment_table(loaded: Any, alignment: str) -> dict:
     trials = {t["id"]: t for t in loaded.trials}
     registry = {f["key"]: f for f in getattr(loaded, "fields", [])}
     keys = sorted({k for r in rows for k in r} | set(registry))
+    skip = _SKIP | (_STIM_FLAGS if STIM_CONDITION in keys else set())
     columns = []
     for key in keys:
         info = registry.get(key, {})
-        if key in _SKIP or info.get("alias_of") or info.get("availability") == "unavailable":
+        if key in skip or info.get("alias_of") or info.get("availability") == "unavailable":
             continue
         column = _column(key, [r.get(key) for r in rows], info, anchors)
         if column is None:
@@ -286,7 +292,7 @@ def stability_masks(loaded: Any) -> dict:
 
 
 _FIT_FIELDS = ("unit_ids", "alignment", "policy", "method", "scaling", "weight", "components", "pre", "post", "bin", "sigma", "groups", "factors", "tdr_window")
-TDR_DEFAULT_FACTORS = ("task", "microstim")
+TDR_DEFAULT_FACTORS = ("task", STIM_CONDITION)   # rows with no train have no stim_condition and leave the fit
 
 
 def _fit_inputs(loaded: Any, request: Mapping[str, Any]) -> dict:

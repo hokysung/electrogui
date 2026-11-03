@@ -26,7 +26,7 @@
 
   // ---------------------------------------------------------------- labels
   const FIELD_LABELS = {
-    task: 'task', microstim: 'stim', sham: 'sham', rewarded: 'rewarded', success: 'trial success',
+    task: 'task', stim_condition: 'stim / sham', microstim: 'stim', sham: 'sham', rewarded: 'rewarded', success: 'trial success',
     fixated: 'fixated', microstim_amplitude: 'stim amplitude (uA)', block_id: 'block', task_type: 'task type',
     trial: 'trial', since_trial_start: 'time in trial (s)', previous_task: 'previous task',
     previous_rewarded: 'previous rewarded', trial_end_t: 'trial end (s from event)', trial_start_t: 'trial start (s from event)',
@@ -35,6 +35,10 @@
     task: ['fixation', 'memory_saccade', 'pursuit', 'pursuit_memory', 'overlap_saccade', 'reveal', 'freeview'],
   };
   LEVEL_ORDER.previous_task = LEVEL_ORDER.task;
+  LEVEL_ORDER.stim_condition = ['stim', 'sham'];
+  /** Fields that only compare their own levels: grouping by one leaves out rows without a value instead of
+   *  drawing them as a "missing" group.  stim_condition is stim vs sham; trials with no train are not either. */
+  const COMPARE_ONLY = new Set(['stim_condition']);
 
   const humanize = s => String(s).replace(/^trial\./, '').replace(/_/g, ' ');
   function fieldLabel(key, col) {
@@ -48,6 +52,7 @@
     const missing = value === null || value === undefined;
     if (key === 'previous_task') return missing ? 'first trial' : `after ${humanize(value)}`;
     if (key === 'previous_rewarded') return missing ? 'first trial' : value ? 'after a rewarded trial' : 'after an unrewarded trial';
+    if (key === 'stim_condition') return missing ? 'no stim or sham train' : String(value);
     if (missing) return `${fieldLabel(key)} missing`;
     if (key === 'task') return humanize(value);
     if (key === 'microstim') return value ? 'stim' : 'no stim';
@@ -217,7 +222,10 @@
       return {d, col, bin: col ? binner(col, rows, spec.qbins || 3) : null};
     });
     const map = new Map();
+    const strict = dims.filter(x => x.col && COMPARE_ONLY.has(x.col.key));
+    let leftOut = 0;
     for (const i of rows) {
+      if (strict.length && strict.some(x => rawValue(x.col, i) === null)) { leftOut++; continue; }
       const parts = dims.map(x => (x.col ? x.bin(i) : {key: '', value: undefined}));
       const key = parts.map(p => p.key).join(SEP);
       let g = map.get(key);
@@ -247,7 +255,7 @@
       delete g.parts;
     }
     return {groups, panels, colorField: spec.color, styleField: spec.style, panelField: spec.panel,
-      nColors: colorKeys.length, nStyles: styleKeys.length};
+      nColors: colorKeys.length, nStyles: styleKeys.length, leftOut};
   }
 
   // --------------------------------------------------------------- markers

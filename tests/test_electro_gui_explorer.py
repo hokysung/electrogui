@@ -58,15 +58,24 @@ class ExplorerPayloadTests(unittest.TestCase):
         self.assertEqual(table["t"], sorted(table["t"]))
         self.assertNotIn("object", table)
         columns = {c["key"]: c for c in table["columns"]}
-        for key in ("task", "microstim", "sham", "rewarded", "previous_task"):
+        for key in ("task", "stim_condition", "rewarded", "previous_task"):
             self.assertIn(key, columns)
+        # stim is compared with sham only: the raw flags (stim vs the rest, sham vs the rest) are not offered
+        for key in ("microstim", "sham", "sham_trial"):
+            self.assertNotIn(key, columns)
+        cond = columns["stim_condition"]
+        by_trial = {t["id"]: t for t in self.loaded.trials}
+        for trial, code in zip(table["trial"], cond["codes"]):
+            t = by_trial[trial]
+            want = None if t.get("connectivity") else "stim" if t.get("microstim") else "sham" if t.get("sham") else None
+            self.assertEqual(None if code < 0 else cond["levels"][code], want)
+        self.assertIn(-1, cond["codes"])   # trials with no train are in the table, outside the stim / sham split
         task = columns["task"]
         self.assertEqual(task["kind"], "cat")
         decoded = [None if c < 0 else task["levels"][c] for c in task["codes"]]
         self.assertEqual(decoded, [r["task"] for r in expected])
         self.assertEqual(set(task["levels"]), {"memory_saccade", "pursuit_memory"})
-        stim = columns["microstim"]
-        self.assertEqual(stim["levels"], [False, True])
+        self.assertEqual(cond["levels"], ["sham", "stim"])
         for key in ("row_id", "t", "event", "complete", "session_time", "object_uid"):
             self.assertNotIn(key, columns)
         for column in table["columns"]:
@@ -128,9 +137,13 @@ class ExplorerPayloadTests(unittest.TestCase):
         self.assertEqual(explorer.alignment_counts(self.loaded)["stim_train"], len(rows))
         table = explorer.alignment_table(self.loaded, "stim_train")
         self.assertEqual(set(table["event"]), {"microstim", "sham_microstim"})
-        stim = {c["key"]: c for c in table["columns"]}["microstim"]
-        decoded = [stim["levels"][c] for c in stim["codes"]]
-        self.assertEqual(decoded, [e == "microstim" for e in table["event"]])
+        cond = {c["key"]: c for c in table["columns"]}["stim_condition"]
+        by_trial = {t["id"]: t for t in self.loaded.trials}
+        for trial, code, event in zip(table["trial"], cond["codes"], table["event"]):
+            if by_trial[trial].get("connectivity"):
+                self.assertEqual(code, -1)      # a ConnectivityMapping trial is neither stim nor sham
+            else:
+                self.assertEqual(cond["levels"][code], "stim" if event == "microstim" else "sham")
 
     def test_event_times_cover_every_valid_occurrence(self):
         events = explorer.event_times(self.loaded, "reward")

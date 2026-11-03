@@ -41,8 +41,9 @@
   }
   const CATEGORY_ORDER = ['Stim', 'Stimulus', 'Eye & response', 'Reward', 'Trial'];
 
-  const COMMON_FIELDS = ['task', 'microstim', 'sham', 'rewarded'];
-  const QUICK_FIELDS = ['task', 'microstim', 'sham', 'rewarded'];
+  // Stim is compared with sham (stim_condition), never with "no stim" or "no sham": see electro_gui/explorer.py.
+  const COMMON_FIELDS = ['task', 'stim_condition', 'rewarded'];
+  const QUICK_FIELDS = ['task', 'stim_condition', 'rewarded'];
   function fieldGroup(col) {
     if (COMMON_FIELDS.includes(col.key) || col.key === 'success' || col.key === 'block_id') return 'Task';
     if (col.relative) return 'Timing (s from event)';
@@ -60,6 +61,7 @@
     overlap_saccade: '#9c36b5', freeview: '#868e96', pursuit_memory: '#c2255c'};   // electro_gui/analysis.py TASK_COLORS
   const SEM = {
     task: TASK_COLORS,
+    stim_condition: {stim: '#e8590c', sham: '#495057'},
     microstim: {true: '#e8590c', false: '#495057'},
     sham: {true: '#495057', false: '#e8590c'},
     rewarded: {true: '#2f9e44', false: '#e03131'},
@@ -105,7 +107,7 @@
     filters: [], color: 'task', style: null, panel: null, qbins: 3, hidden: [],
     sort: 'session', dir: 1, grouped: true, markers: [], refs: [], medians: true,
     tick: 'line', rasterH: 260, rasterFit: true, psthH: 205, ylock: null, bars: true, unitQ: ['sua', 'mua'], unitArea: [], gstyle: {},
-    mode: 'raster', roster: [], method: 'pca', scaling: 'zscore', ncomp: 3, tdrFactors: ['task', 'microstim'], tdrWin: null, dims: '2', heatNorm: 'z',
+    mode: 'raster', roster: [], method: 'pca', scaling: 'zscore', ncomp: 3, tdrFactors: ['task', 'stim_condition'], tdrWin: null, dims: '2', heatNorm: 'z',
     nsort: 'loading:0', axes: [0, 1, 2], heatGroup: null, cloud: false, cloudAlpha: 0.3, cloudZero: true, cloudFit: 'traj',
     bt: true, btN: 16, pin: null, yoke: false, popSplit: 0.5,
   };
@@ -116,8 +118,8 @@
     {name: 'Target on, by task', hint: 'aligned to target onset, colour = task', state: {
       align: 'stimuli_on', filters: [], color: 'task', style: null, panel: null, win: [-1, 1.5], cw: [0.05, 0.25],
       markers: [{e: 'fix_on', match: 'trial', occ: 'last_before', label: 'fixation point on', c: INK}]}},
-    {name: 'Stim vs sham at train onset', hint: 'stim and sham trains pooled, colour = stimulated', state: {
-      align: 'stim_train', filters: [], color: 'microstim', style: null, panel: null, win: [-0.5, 1.0], cw: [0, 0.3]}},
+    {name: 'Stim vs sham at train onset', hint: 'stim and sham trains, colour = stim / sham', state: {
+      align: 'stim_train', filters: [], color: 'stim_condition', style: null, panel: null, win: [-0.5, 1.0], cw: [0, 0.3]}},
     {name: 'Reward, by task', hint: 'aligned to reward, colour = task', state: {
       align: 'reward', filters: [], color: 'task', style: null, panel: null, win: [-1, 1], cw: [0, 0.5]}},
     {name: 'Fixation on, rewarded vs not', hint: 'aligned to the fixation point, colour = rewarded', state: {
@@ -137,6 +139,22 @@
     trains: new Map(), trainErrors: new Map(),   // unit id -> spike times (s) for the timeline's spike lane
   };
 
+  /** Links, findings and saved state from before stim_condition split by microstim / sham / sham_trial, which
+   *  compared stim with everything else.  Those splits become stim_condition; a filter keeping only stim (or
+   *  only sham) trials keeps that level; a filter on "no stim" / "no sham" has no stim-vs-sham meaning and goes. */
+  const STIM_FLAGS = {microstim: 'stim', sham: 'sham', sham_trial: 'sham'};
+  function migrateStimFields(s) {
+    for (const k of ['color', 'style', 'panel']) if (STIM_FLAGS[s[k]]) s[k] = 'stim_condition';
+    if (typeof s.sort === 'string' && STIM_FLAGS[s.sort.replace(/^field:/, '')]) s.sort = 'field:stim_condition';
+    if (Array.isArray(s.tdrFactors)) s.tdrFactors = [...new Set(s.tdrFactors.map(k => (STIM_FLAGS[k] ? 'stim_condition' : k)))];
+    if (!Array.isArray(s.filters)) return;
+    s.filters = s.filters.flatMap(f => {
+      if (!f || !STIM_FLAGS[f.k]) return [f];
+      const keepsFlagged = Array.isArray(f.v) && f.v.length === 1 && ['true', '1', '1.0'].includes(String(f.v[0]).toLowerCase());
+      return keepsFlagged ? [{k: 'stim_condition', v: [STIM_FLAGS[f.k]]}] : [];
+    });
+  }
+
   function sanitize(raw) {
     const s = {...clone(DEFAULTS), ...(raw && typeof raw === 'object' ? raw : {})};
     const pair = (v, d) => (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite) && v[0] < v[1] ? v : d);
@@ -147,6 +165,7 @@
     for (const [k, allowed] of Object.entries({weight: ['event', 'trial'], err: ['sem', 'ci', 'none'], policy: ['verified_stable', 'all_complete'], tick: ['line', 'dot']}))
       if (!allowed.includes(s[k])) s[k] = DEFAULTS[k];
     for (const k of ['filters', 'hidden', 'markers', 'refs', 'unitQ', 'unitArea']) if (!Array.isArray(s[k])) s[k] = clone(DEFAULTS[k]);
+    migrateStimFields(s);
     s.markers = s.markers.filter(m => m && typeof m.e === 'string').map((m, i) => ({id: m.id || `m${i + 1}`, match: 'trial', occ: 'nearest', c: INK, ...m}));
     s.refs = s.refs.filter(Number.isFinite);
     s.rasterH = Number.isFinite(s.rasterH) ? clamp(s.rasterH, RASTER_MIN, RASTER_MAX) : DEFAULTS.rasterH;
@@ -796,7 +815,7 @@
     renderSupport(M);
     renderLegend(M);
     renderQuickFilters(M);
-    if (!M.rows.length) {
+    if (!M.rows.length || !M.grouping.groups.length) {
       fig.innerHTML = ''; $('bars').innerHTML = ''; D.layout = null;
       renderEmptyReason(M);
       return;
@@ -834,6 +853,7 @@
     if (M.excl[3]) detail.push(`${M.excl[3]} whose window leaves the stable run`);
     const hiddenRows = M.grouping.groups.filter(g => g.hidden).reduce((a, g) => a + g.rows.length, 0);
     if (hiddenRows) detail.push(`${hiddenRows} in hidden groups`);
+    if (M.grouping.leftOut) detail.push(`${M.grouping.leftOut} with no stim or sham train (not in the stim vs sham split)`);
     $('support').innerHTML = bits.join('') + (detail.length ? `<br>${esc(detail.join(' · '))}` : '') + (ex && S.policy === 'verified_stable' && !M.rows.length ? '' : '');
   }
 
@@ -844,6 +864,7 @@
     if (stab) reasons.push(`${stab} events are in trials that are not ${S.policy === 'verified_stable' ? 'stable for this unit' : 'complete'}.`);
     if (M.excl[3]) reasons.push(`${M.excl[3]} events have a window (plus the 0.4 s guard) that leaves the unit's stable run — try a shorter window.`);
     if (M.filtered === M.T.n) reasons.push('The filters exclude every event.');
+    if (M.rows.length && !M.grouping.groups.length) reasons.push(`None of these ${M.grouping.leftOut} events is on a stim or sham trial, so the stim vs sham split has nothing to show. Align on the stim train, or keep a task that has trains.`);
     if (M.yoke && M.yoked) reasons.push(`The rasters are yoked to behavior trials ${M.yoke.from}–${M.yoke.to}; widen the behavior window or turn yoking off.`);
     e.innerHTML = `<h3>No events to show</h3>${reasons.map(r => `<p>${esc(r)}</p>`).join('')}` +
       (S.policy === 'verified_stable' && stab ? '<button class="primary" type="button" data-act="all-complete">Use all complete trials</button> ' : '') +
@@ -1035,8 +1056,8 @@
       ['microstim', 'trial', 'first_after', 'stim train onset']];
     $('markerPresets').innerHTML = mk.filter(([e]) => avail.has(e) && !S.markers.some(m => m.e === e))
       .map(([e, match, occ, label]) => `<button type="button" class="preset" data-mp="${e}|${match}|${occ}|${label}">+ ${esc(label)}</button>`).join('');
-    const gp = [['task', null, 'task'], ['microstim', null, 'stim / no stim'], ['rewarded', null, 'rewarded / not'],
-      ['task', 'microstim', 'task × stim'], ['previous_task', null, 'previous task']];
+    const gp = [['task', null, 'task'], ['stim_condition', null, 'stim vs sham'], ['rewarded', null, 'rewarded / not'],
+      ['task', 'stim_condition', 'task × stim/sham'], ['previous_task', null, 'previous task']];
     $('groupPresets').innerHTML = T ? gp.filter(([a, b]) => T.byKey.has(a) && (!b || T.byKey.has(b)))
       .map(([a, b, label]) => `<button type="button" class="preset" data-gp="${a}|${b || ''}">${esc(label)}</button>`).join('') : '';
   }
@@ -1376,6 +1397,7 @@
     const support = {events: M.visible.reduce((a, g) => a + g.rows.length, 0), trials: trials.size, filtered_out: M.filtered,
       not_stable_or_complete: M.excl[1] + M.excl[2], window_leaves_stable_run: M.excl[3],
       in_hidden_groups: M.grouping.groups.filter(g => g.hidden).reduce((a, g) => a + g.rows.length, 0),
+      ...(M.grouping.leftOut ? {no_stim_or_sham_train: M.grouping.leftOut} : {}),
       yoked_trials: M.yoke ? {first: M.yoke.from, last: M.yoke.to} : null};
     const out = {schema: 1, mode: S.mode, session_id: D.summary.session_id, source: {sha256: src.sha256 || null, size_bytes: src.size_bytes ?? src.size ?? null},
       title: D.figMeta.title, subtitle: D.figMeta.subtitle, alignment: S.align, policy: S.policy, window_s: S.win.slice(),
@@ -2642,7 +2664,7 @@
       for (const g of M.visible) M.grid.times.forEach((t, j) => lines.push([csv(g.label), csv(g.panelLabel), tidy(t, 4), tidy(g.psth.mean[j], 4), tidy(g.psth.sem[j], 4), g.psth.n, S.weight, g.psth.events, g.psth.trials].join(',')));
       download(`${stem}_psth.csv`, new Blob([`# ${JSON.stringify(provenance(M))}\n` + lines.join('\n')], {type: 'text/csv'}));
     } else if (kind === 'rows') {
-      const fields = [...new Set(['task', 'microstim', 'sham', 'rewarded', 'previous_task', S.color, S.style, S.panel, ...S.filters.map(f => f.k)].filter(k => k && M.T.byKey.has(k)))];
+      const fields = [...new Set(['task', 'stim_condition', 'rewarded', 'previous_task', S.color, S.style, S.panel, ...S.filters.map(f => f.k)].filter(k => k && M.T.byKey.has(k)))];
       const markers = S.markers.filter(m => M.markerData[m.id]);
       const head = ['row_id', 'trial', 't_session_s', 'event', 'group', 'panel', 'count_window_spikes', 'count_window_rate_hz', ...markers.map(m => `marker_${m.label || m.e}_s`), ...fields];
       const lines = [head.map(csv).join(',')];
@@ -3105,7 +3127,7 @@
     const owner = rowOwners(M), g = M && owner[i] >= 0 ? M.visible[owner[i]] : null;
     const kv = [['trial', T.trial[i]], ['event time', `${C.fmtNum(T.t[i], 2)} s`]];
     if (T.event) kv.push(['event', eventLabel(T.event[i])]);
-    for (const key of ['task', 'microstim', 'sham', 'rewarded', S.color, S.style, S.panel]) {
+    for (const key of ['task', 'stim_condition', 'rewarded', S.color, S.style, S.panel]) {
       const col = key && T.byKey.get(key);
       if (!col || kv.some(([a]) => a === col.label)) continue;
       const v = C.rawValue(col, i);

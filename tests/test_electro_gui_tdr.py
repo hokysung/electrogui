@@ -40,11 +40,11 @@ class TDRTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def test_default_factors_are_task_and_microstim(self):
-        self.assertEqual(explorer.TDR_DEFAULT_FACTORS, ("task", "microstim"))
+    def test_default_factors_are_task_and_stim_condition(self):
+        self.assertEqual(explorer.TDR_DEFAULT_FACTORS, ("task", "stim_condition"))
         self.assertNotIn("world_coding", explorer._FIT_FIELDS)
         fit = explorer.population_fit(self.loaded, body(self.loaded))   # factors omitted: the defaults
-        self.assertEqual(fit["tdr"]["factor_keys"], ["task", "microstim"])
+        self.assertEqual(fit["tdr"]["factor_keys"], ["task", "stim_condition"])
         self.assertEqual(fit["components"], 2)
         self.assertNotIn("world_coding", fit["tdr"])
         self.assertNotIn("world", fit["tdr"]["coding"])

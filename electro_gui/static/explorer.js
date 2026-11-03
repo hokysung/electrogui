@@ -51,6 +51,9 @@
     return 'Advanced';
   }
   const FIELD_GROUP_ORDER = ['Task', 'Stimulation', 'Previous trial', 'Timing (s from event)', 'Advanced'];
+  // COMMON_FIELDS first, in their order; the rest of the Task group after them, alphabetically.
+  const commonRank = key => { const i = COMMON_FIELDS.indexOf(key); return i < 0 ? COMMON_FIELDS.length : i; };
+  const byCommonOrder = (a, b) => commonRank(a.key) - commonRank(b.key) || a.label.localeCompare(b.label);
 
   // -------------------------------------------------------------- colours
   const TASK_COLORS = {fixation: '#495057', memory_saccade: '#1971c2', pursuit: '#2f9e44', reveal: '#f08c00',
@@ -886,8 +889,7 @@
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(col);
     }
-    const common = groups.get('Common');
-    common.sort((a, b) => COMMON_FIELDS.indexOf(a.key) - COMMON_FIELDS.indexOf(b.key));
+    groups.get('Task').sort(byCommonOrder);   // fieldGroup puts COMMON_FIELDS (and success, block_id) under 'Task'
     let html = none ? `<option value="">${esc(none)}</option>` : '';
     if (sortExtras) {
       html = '<optgroup label="Rows"><option value="session">session order</option><option value="count">spikes in count window</option>';
@@ -896,7 +898,7 @@
     }
     for (const [name, cols] of groups) {
       if (!cols.length) continue;
-      if (name !== 'Common') cols.sort((a, b) => a.label.localeCompare(b.label));
+      if (name !== 'Task') cols.sort((a, b) => a.label.localeCompare(b.label));
       html += `<optgroup label="${esc(name)}">` + cols.map(c => {
         const v = sortExtras ? `field:${c.key}` : c.key;
         const extra = !sortExtras && c.kind === 'num' && !c.discrete ? ' (binned)' : '';
@@ -1119,7 +1121,7 @@
       let html = '';
       for (const g of FIELD_GROUP_ORDER) {
         const cols = T.columns.filter(c => fieldGroup(c) === g && (!t || `${c.key} ${c.label}`.toLowerCase().includes(t)));
-        if (g === 'Common') cols.sort((a, b) => COMMON_FIELDS.indexOf(a.key) - COMMON_FIELDS.indexOf(b.key)); else cols.sort((a, b) => a.label.localeCompare(b.label));
+        if (g === 'Task') cols.sort(byCommonOrder); else cols.sort((a, b) => a.label.localeCompare(b.label));
         if (!cols.length) continue;
         html += `<div class="pop-group">${esc(g)}</div>` + cols.map(c => {
           const lv = C.fieldLevels(c);

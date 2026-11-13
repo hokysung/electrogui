@@ -120,6 +120,15 @@ time in the trial, a trial for its task, reward, stim and event sequence.
 - **Pin** by clicking a raster row, an event or a trial: the trial stays
   highlighted in every raster panel, and the pin chip says how many of its rows
   are in the raster or why none are.  `Esc` or its `×` clears it.
+- **Raw traces** (the link beside the pin chip, or `T`) opens the trace page for
+  the selected unit on the pinned trial: its spikes drawn on the voltage of its
+  peak channel and the nearest eight, from 1 s before the trial to 1 s after.
+  *As sorted* is the recording the sorter read (preprocessed, artifact-cleaned
+  windows pasted in); *Raw* is the `.ap.bin`, on the channels that held the same
+  signal before motion correction.  The voltage is not in the session file: the
+  first open of a trial reads it from the cluster over the `orcd` ssh lane (a few
+  seconds; it needs the lane up), later opens come from
+  `<output>/traces` (a few MB per trial, capped at 1 GB, safe to delete).
 - **Yoke to rasters** restricts the rasters, PSTHs, counts and exports to the
   timeline's trials (at least 20), recorded as `yoked_trials` in exports.
 
@@ -205,7 +214,9 @@ export, a bare state object and a saved finding are accepted as they are.
 and `POST /api/explorer/popfit|popprobe`; `POST /api/jobs` (`load`, `unit`,
 `population`, `preview`, `annotate`, `stable_selection`) with `GET /api/jobs/<id>`
 and `/api/jobs/<id>/export?format=json|csv|svg|membership|stats`;
-`GET /api/configs`; `GET|POST /api/findings…`.  A session must first be opened
+`GET /api/configs`; `GET|POST /api/findings…`;
+`GET /api/trace?session=&unit=&trial=[&sorting=]` (the trace page's snippet,
+`session_viewer.trace_snippet` format; 503 while the cluster is unreachable).  A session must first be opened
 with a `load` job.  The catalog lists each session's `sortings`
 (`{name, label, is_default, n_units, path}`, default first with `name: null`); every
 explorer read takes an optional `sorting=<name>` query parameter and every job or

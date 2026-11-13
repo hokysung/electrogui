@@ -116,6 +116,46 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.get("/api/jobs", "POST", {"action": "unknown"})[0], 400)
 
 
+    def test_trace_route_serves_the_fetched_snippet_and_names_what_went_wrong(self):
+        import gzip
+        from session_viewer.trace_fetch import TraceFetcher, TraceUnavailable
+        blob = gzip.compress(b"PHYSTRC1" + b"\x02\x00\x00\x00{}")
+        url = f"/api/trace?session={self.sid}&unit={SUA}&trial=3"
+        status, data = self.get(url)
+        self.assertEqual(status, 404, data)                       # started without a trace folder
+        self.assertIn("trace folder", json.loads(data)["error"])
+
+        self.app.traces = TraceFetcher(Path(self.temp.name) / "traces")
+        asked = []
+        self.app.traces._fetch = lambda *args: asked.append(args) or blob
+        status, data = self.get(url)                              # http.client asks for no gzip: sent plain
+        self.assertEqual((status, data), (200, gzip.decompress(blob)))
+        status, data = self.get(url, headers={"Accept-Encoding": "gzip"})
+        self.assertEqual((status, data), (200, blob))
+        self.assertEqual(len(asked), 1)                           # the second answer came from the trace folder
+        self.assertEqual(asked[0][:4], (self.sid, None, SUA, 3))
+
+        status, data = self.get(f"/api/trace?session={self.sid}&unit=999&trial=3")
+        self.assertEqual(status, 400, data)
+        self.assertIn("unit 999", json.loads(data)["error"])
+        self.assertEqual(self.get(f"/api/trace?session={self.sid}&unit=x&trial=3")[0], 400)
+        self.assertEqual(self.get(f"/api/trace?session=Nobody_19990101&unit={SUA}&trial=3")[0], 404)
+
+        def down(*args):
+            raise TraceUnavailable("The cluster connection is down")
+        self.app.traces._fetch = down
+        status, data = self.get(f"/api/trace?session={self.sid}&unit={SUA}&trial=4")
+        self.assertEqual(status, 503, data)
+        self.assertIn("connection is down", json.loads(data)["error"])
+
+    def test_trace_page_is_served_with_no_inline_script(self):
+        status, data = self.get("/trace.html")
+        self.assertEqual(status, 200)
+        page = data.decode()
+        self.assertIn('src="/trace.js"', page)
+        self.assertNotRegex(page, r"<script(?![^>]*\bsrc=)")       # the CSP allows script-src 'self' only
+        self.assertEqual(self.get("/trace.js")[0], 200)
+
     def test_health_names_this_process_and_restart_stops_serving(self):
         status, data = self.get("/api/health")
         self.assertEqual(status, 200)

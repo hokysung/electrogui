@@ -75,7 +75,8 @@ def run(args):
     from .sortings import SortingStore
     roots = args.data_root if args.data_root is not None else default_roots()
     store = SortingStore(roots=roots, session_files=args.session_file or [], cache_dir=cache_dir)
-    application = Application(store, findings_dir=findings_dir, config_dirs=config_dirs)
+    application = Application(store, findings_dir=findings_dir, config_dirs=config_dirs,
+                              trace_dir=output_root() / "traces")
     host = "0.0.0.0" if args.lan else args.host
     token = args.token  # optional on loopback: tailscale serve lets this node's owner in without one (server.Tailnet)
     if restart and token is None:

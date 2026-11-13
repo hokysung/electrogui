@@ -2,6 +2,8 @@
 
 * ``<output>/cache``    the derived-result cache (disposable)
 * ``<output>/findings`` saved findings (JSON + PNG each)
+* ``<output>/traces``   voltage snippets the trace page fetched from the cluster (disposable,
+                        capped at 1 GB; ``session_viewer.trace_fetch``)
 
 ``<output>`` is ``$ELECTRO_GUI_OUTPUT``, else ``~/electro_gui_output``.
 ``--cache-dir`` and ``--findings-dir`` replace one folder each.  Figure

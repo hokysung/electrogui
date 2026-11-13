@@ -320,7 +320,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 .bt-toggle .chev { color: var(--muted); font-size: 12px; transition: transform .15s; }
 .behavior.collapsed .chev { transform: rotate(-90deg); }
 .behavior.collapsed .bt-body, .behavior.collapsed .bt-zoom, .behavior.collapsed .bt-pin { display: none; }
-.bt-pin { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink-2); }
+.bt-pin { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .bt-hint { color: var(--faint); font-size: 12px; }
 .pin-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-height: 28px; padding: 0 4px 0 10px; border-radius: 999px;
   background: var(--accent-soft); color: var(--ink); cursor: pointer; font-variant-numeric: tabular-nums; }
@@ -330,6 +330,9 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 .pin-chip .why { color: var(--muted); }
 .pin-chip .x { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 0; background: transparent; color: var(--muted); font-size: 15px; }
 .pin-chip .x:hover { background: rgba(0, 0, 0, .08); color: var(--ink); }
+.pin-trace { display: inline-flex; align-items: center; flex: none; min-height: 28px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--card); color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.pin-trace:hover { border-color: var(--accent); background: var(--accent-soft); }
 .bt-zoom { display: flex; align-items: center; gap: 6px; }
 .switch.bt-yoke { margin: 0 8px 0 0; font-size: 12.5px; white-space: nowrap; }
 .icon-btn.sm { width: 30px; height: 30px; font-size: 16px; box-shadow: none; }

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>electro · trial traces</title>
+  <link rel="icon" type="image/svg+xml" href="/icons/electro.svg">
+  <link rel="stylesheet" href="/explorer.css">
+  <link rel="stylesheet" href="/trace.css">
+</head>
+<body>
+<div class="tr-wrap">
+  <section class="tr-card tr-head">
+    <div class="tr-bar">
+      <a class="tr-btn" href="/" id="back">← back to explorer</a>
+      <button class="tr-btn" id="prevTrial" type="button" title="Previous trial">‹ trial</button>
+      <button class="tr-btn" id="nextTrial" type="button" title="Next trial">trial ›</button>
+      <span class="grow"></span>
+      <button class="tr-btn tr-theme" id="themeBtn" type="button" title="Colour theme: light, dark or auto" aria-label="Colour theme"></button>
+    </div>
+    <div style="margin-top:10px">
+      <h1 id="title">Trial traces</h1>
+      <div class="meta" id="meta"></div>
+      <div class="summary" id="summary"></div>
+    </div>
+  </section>
+
+  <section class="tr-card">
+    <div class="tr-ctl">
+      <div class="seg" id="srcSeg" role="group" aria-label="Data source">
+        <button type="button" data-src="sorted" class="on">As sorted</button>
+        <button type="button" data-src="raw">Raw</button>
+      </div>
+      <label id="refLab" hidden><input type="checkbox" id="refChk"> common reference</label>
+      <span class="sep"></span>
+      <label><input type="checkbox" id="nbChk"> other units</label>
+      <span class="sep"></span>
+      <button class="tr-btn" id="bWhole" type="button">Whole window</button>
+      <button class="tr-btn" id="bTrial" type="button">Trial only</button>
+      <button class="tr-btn" id="bPrevSp" type="button" title="Previous spike ( [ or , )">‹ spike</button>
+      <button class="tr-btn" id="bNextSp" type="button" title="Next spike ( ] or . )">spike ›</button>
+      <span class="sep"></span>
+      <span>gain</span>
+      <button class="tr-btn" id="gDn" type="button" title="Lower gain (↓)" aria-label="Lower gain">−</button>
+      <button class="tr-btn" id="gUp" type="button" title="Raise gain (↑)" aria-label="Raise gain">+</button>
+    </div>
+    <div class="tr-src" id="srcInfo"></div>
+  </section>
+
+  <section class="tr-card">
+    <div class="tr-counts" id="counts"></div>
+    <div class="tr-stage" id="stage">
+      <canvas id="over" height="44"></canvas>
+      <div style="position:relative">
+        <canvas id="fig"></canvas>
+        <canvas id="ov"></canvas>
+      </div>
+      <div class="tr-msg" id="msg" hidden></div>
+    </div>
+    <div class="tr-readout" id="readout"></div>
+    <div class="tr-legend" id="legend"></div>
+    <div class="tr-keys">Wheel or pinch: zoom. Drag: pan. Double-click: whole window. Keys: ← → pan, ↑ ↓ gain, [ ] or , . previous/next spike, r raw/sorted.</div>
+  </section>
+</div>
+<script src="/trace.js"></script>
+</body>
+</html>

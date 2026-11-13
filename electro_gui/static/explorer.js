@@ -3274,7 +3274,15 @@
       bits.push(!all ? `no ${esc(eventLabel(S.align))} rows` : shown === all ? `${all} row${all > 1 ? 's' : ''} in raster`
         : `${shown} of ${all} rows in raster${reason ? ` <span class="why">(${esc(reason)})</span>` : ''}`);
     }
-    el.innerHTML = `<span class="pin-chip" title="Show the pinned trial"><i></i><span class="pin-text">${bits.join(' · ')}</span><button type="button" class="x" id="btUnpin" aria-label="Unpin trial" title="Unpin (Esc)">×</button></span>`;
+    const traces = traceUrl();
+    el.innerHTML = `<span class="pin-chip" title="Show the pinned trial"><i></i><span class="pin-text">${bits.join(' · ')}</span><button type="button" class="x" id="btUnpin" aria-label="Unpin trial" title="Unpin (Esc)">×</button></span>`
+      + (traces ? `<a class="pin-trace" id="btTrace" href="${esc(traces)}" target="_blank" rel="noopener" title="Open this unit's spikes on the voltage traces of its channels, for this trial ± 1 s (T). Read from the cluster: the first time takes a few seconds.">raw traces ↗</a>` : '');
+  }
+  /** The trace page for the selected unit on the pinned trial; null with no pin or no single unit. */
+  function traceUrl() {
+    if (!S.pin || S.mode !== 'raster' || S.unit === null || !S.session) return null;
+    const q = new URLSearchParams({session: S.session, sorting: S.sorting || '', unit: String(S.unit), trial: String(S.pin.trial)});
+    return `/trace.html#${q}`;
   }
 
   function bindBehavior() {
@@ -3346,6 +3354,8 @@
     $('btNext').addEventListener('click', () => pan(1));
     $('btPin').addEventListener('click', e => {
       if (e.target.closest('#btUnpin')) { setPin(null); return; }
+      const link = e.target.closest('#btTrace');
+      if (link) { const url = traceUrl(); if (url) link.href = url; return; }   // the unit may have changed since it was drawn
       if (e.target.closest('.pin-chip') && S.pin && D.behavior && D.behavior.trials.pos.has(S.pin.trial)) { D.btC = D.behavior.trials.pos.get(S.pin.trial) + 0.5; behaviorMoved(); }
     });
   }
@@ -3385,6 +3395,10 @@
       }
       const tag = (e.target.tagName || '').toLowerCase();
       if (['input', 'select', 'textarea'].includes(tag) || e.metaKey || e.ctrlKey || e.altKey || !$('popover').hidden) return;
+      if (e.key === 't' || e.key === 'T') {   // the pinned trial's raw traces
+        const url = traceUrl();
+        if (url) { e.preventDefault(); window.open(url, '_blank', 'noopener'); return; }
+      }
       if (S.mode === 'population') {
         if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && D.popLayout) {
           e.preventDefault(); stopPlay();

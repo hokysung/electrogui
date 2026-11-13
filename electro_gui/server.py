@@ -23,6 +23,7 @@ from uuid import uuid4
 import session_viewer
 from session_viewer import explorer_core
 from session_viewer.store import SessionStore
+from session_viewer.trace_fetch import TraceFetcher, TraceUnavailable
 
 from . import __version__
 from .exports import export_csv, export_json, export_membership, export_statistics, export_svg
@@ -35,12 +36,15 @@ from . import explorer
 
 
 class Application:
-    def __init__(self, store: SessionStore, findings_dir: str | Path | None = None, config_dirs=()):
+    def __init__(self, store: SessionStore, findings_dir: str | Path | None = None, config_dirs=(),
+                 trace_dir: str | Path | None = None):
         if type(store) is SessionStore:   # a plain store: the same sessions, plus their alternate sortings
             store = SortingStore(store.roots, store.session_files, store.cache_dir)
         self.store = store
         self.findings = FindingStore(findings_dir) if findings_dir is not None else None
         self.config_dirs = [Path(d).expanduser().absolute() for d in config_dirs or ()]
+        # The trace page's snippets, read from the cluster when a trial is opened (None: the page is off).
+        self.traces = TraceFetcher(trace_dir) if trace_dir is not None else None
         self.jobs = OrderedDict()
         self.preview_jobs = OrderedDict()
         self.lock = threading.RLock()
@@ -324,6 +328,32 @@ class Application:
                 return dict(self.preview_jobs[job_id])
             raise KeyError(job_id)
 
+    def trace(self, query):
+        """``/api/trace``: one unit's channels for one trial +- 1 s, gzipped (``session_viewer.trace_snippet``).
+
+        The voltage is not in the session file: the first request for a trial reads it from
+        the cluster over ssh (a few seconds); later ones come from the trace folder."""
+        if self.traces is None:
+            raise KeyError("This server was started without a trace folder, so it cannot fetch traces.")
+
+        def integer(name):
+            try:
+                return int(query[name][0])
+            except (KeyError, ValueError):
+                raise ValueError(f"{name} must be an integer ID") from None
+        session_id = query.get("session", [None])[0]
+        if not session_id:
+            raise ValueError("Missing query parameter 'session'.")
+        sorting = normalize_sorting(query.get("sorting", [None])[0])
+        unit, trial = integer("unit"), integer("trial")
+        with self.store_lock:
+            loaded = self.load(session_id, sorting)
+            if unit not in {int(u["id"]) for u in loaded.units}:
+                raise ValueError(f"unit {unit} is not in {session_id}")
+            identity = loaded.session.source_identity()
+        stamp = json.dumps(identity, sort_keys=True, default=str)
+        return self.traces.get(session_id, unit, trial, sorting=sorting, stamp=stamp)
+
     def close(self):
         self.executor.shutdown(wait=True, cancel_futures=True)
         self.preview_executor.shutdown(wait=True, cancel_futures=True)
@@ -466,12 +496,15 @@ def make_server(application, host="127.0.0.1", port=8765, token=None, tailnet=No
     class Handler(BaseHTTPRequestHandler):
         _set_cookie = False
 
-        def _send(self, body, status=200, content_type="application/json; charset=utf-8", filename=None):
+        def _send(self, body, status=200, content_type="application/json; charset=utf-8", filename=None,
+                  gzipped_body=False):
             if isinstance(body, (dict, list)):
                 body = json.dumps(body, allow_nan=False, separators=(",", ":")).encode()
-            gzipped = (len(body) > 1400 and content_type.startswith(_COMPRESSIBLE)
-                       and "gzip" in self.headers.get("Accept-Encoding", ""))
-            if gzipped:
+            accepts = "gzip" in self.headers.get("Accept-Encoding", "")
+            if gzipped_body and not accepts:                 # already gzip; this client wants it plain
+                body, gzipped_body = gzip.decompress(body), False
+            gzipped = gzipped_body or (len(body) > 1400 and content_type.startswith(_COMPRESSIBLE) and accepts)
+            if gzipped and not gzipped_body:
                 body = gzip.compress(body, compresslevel=5)
             self.send_response(status)
             self.send_header("Content-Type", content_type)
@@ -540,6 +573,9 @@ def make_server(application, host="127.0.0.1", port=8765, token=None, tailnet=No
                                 "code_changed": code_changed_since()})
                 elif url.path.startswith("/api/explorer/"):
                     self._send(application.explore(url.path.rsplit("/", 1)[1], parse_qs(url.query)))
+                elif url.path == "/api/trace":
+                    self._send(application.trace(parse_qs(url.query)), content_type="application/octet-stream",
+                               gzipped_body=True)
                 elif url.path == "/api/findings":
                     self._send(application.list_findings())
                 elif url.path.startswith("/api/findings/"):
@@ -588,7 +624,9 @@ def make_server(application, host="127.0.0.1", port=8765, token=None, tailnet=No
                         raise KeyError("Unknown file")
                     self._send(path.read_bytes(), content_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
             except KeyError as exc:
-                self._send({"error": str(exc)}, 404)
+                self._send({"error": str(exc).strip("'\"")}, 404)
+            except TraceUnavailable as exc:
+                self._send({"error": str(exc)}, 503)
             except (ValueError, OSError) as exc:
                 self._send({"error": str(exc)}, 400)
 

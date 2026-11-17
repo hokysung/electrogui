@@ -63,6 +63,7 @@
   let SESS = null;      // the open session: {key, summary, T, byId, ...}
   let U = null;         // the open unit
   let pinned = null;    // trial id
+  let LIST = null;      // the browser's filtered list this page steps through: {rows: [{session, sorting, unit, id}], text}
   const VIEWS = [];     // every drawn plot, for redraws
   let redrawTimer = 0;
 
@@ -84,13 +85,14 @@
   // --------------------------------------------------------------- address
   function params() {
     const p = new URLSearchParams(location.hash.slice(1));
-    return {session: p.get('session') || '', sorting: p.get('sorting') || '', unit: p.get('unit') || '', trial: p.get('trial') || '', back: p.get('back') || ''};
+    return {session: p.get('session') || '', sorting: p.get('sorting') || '', unit: p.get('unit') || '', trial: p.get('trial') || '', back: p.get('back') || '', list: p.get('list') || ''};
   }
   function hashOf(P) {
     const p = new URLSearchParams();
     p.set('session', P.session); p.set('sorting', P.sorting || ''); p.set('unit', P.unit);
     if (P.trial) p.set('trial', P.trial);
     if (P.back) p.set('back', P.back);
+    if (P.list) p.set('list', P.list);
     return p.toString();
   }
   function safeBack(url) {
@@ -354,6 +356,11 @@
     document.title = `unit ${P.unit} · ${P.session}`;
     $('explorerLink').href = P.unit ? explorerHref(P.unit) : '/';
     try {
+      LIST = null;
+      if (P.list) {
+        try { const l = await window.EGUnitSets.list(P.list); LIST = {rows: l.rows.map(r => ({session: r.session, sorting: r.sorting || '', unit: r.unit, id: `${r.session}@${r.sorting || ''}:${r.unit}`})), text: P.list}; }
+        catch (e) { LIST = null; }   // an unreadable list: the page steps through the session's units as usual
+      }
       const S = await openSession(P, token);
       if (!S || token !== TOKEN) return;
       let unit = parseInt(P.unit, 10);
@@ -373,6 +380,7 @@
       U = buildUnit(S, unit, info, C.decodeSpikeTrain(st));
       showMsg(null);
       renderHead();
+      renderProfile(S, unit, token);
       renderMain();
       setPin(P.trial !== '' && Number.isFinite(parseInt(P.trial, 10)) ? parseInt(P.trial, 10) : null, false);
     } catch (e) {
@@ -383,7 +391,15 @@
   }
 
   function renderBack(P) {
-    const a = $('backLink'), href = safeBack(P.back);
+    const a = $('backLink');
+    if (P.list) {   // back to the browser, with its filters and this unit selected
+      a.hidden = false; a.textContent = '← back to the list';
+      const sel = `${P.session}@${P.sorting || ''}:${P.unit}`;
+      a.href = `/units.html#${P.list}&sel=${encodeURIComponent(sel)}`;
+      return;
+    }
+    const href = safeBack(P.back);
+    a.textContent = '← back to the report';
     a.hidden = !href;
     if (href) a.href = href;
   }
@@ -398,14 +414,29 @@
     const cur = list.findIndex(u => u.id === current);
     const next = cur >= 0 ? list[cur + 1] : list[idx];
     const before = cur >= 0 ? list[cur - 1] : prev;
-    $('prevUnit').disabled = !before; $('nextUnit').disabled = !next;
-    $('prevUnit').dataset.id = before ? before.id : ''; $('nextUnit').dataset.id = next ? next.id : '';
-    $('prevUnit').title = before ? `Previous unit: ${before.id} (←)` : 'No previous unit';
-    $('nextUnit').title = next ? `Next unit: ${next.id} (→)` : 'No next unit';
+    let b = before, n = next, tb = before ? `${before.id}` : '', tn = next ? `${next.id}` : '';
+    const pos = $('listPos');
+    pos.hidden = !LIST;
+    if (LIST) {   // step through the browser's list instead (it may cross sessions)
+      const id = `${CUR.session}@${CUR.sorting || ''}:${current}`, i = LIST.rows.findIndex(r => r.id === id);
+      const bb = i > 0 ? LIST.rows[i - 1] : null, nn = LIST.rows[i + 1] || null;
+      b = bb; n = nn;
+      tb = bb ? `${bb.unit} (${bb.session})` : ''; tn = nn ? `${nn.unit} (${nn.session})` : '';
+      pos.textContent = i >= 0 ? `${i + 1} of ${LIST.rows.length} in the list` : `not in the list of ${LIST.rows.length}`;
+    }
+    $('prevUnit').disabled = !b; $('nextUnit').disabled = !n;
+    $('prevUnit').dataset.id = b ? (LIST ? b.id : b.id) : ''; $('nextUnit').dataset.id = n ? (LIST ? n.id : n.id) : '';
+    $('prevUnit').title = b ? `Previous unit: ${tb} (←)` : 'No previous unit';
+    $('nextUnit').title = n ? `Next unit: ${tn} (→)` : 'No next unit';
   }
   function goUnit(id) {
     if (!id && id !== 0) return;
-    const P = params(); P.unit = String(id);
+    const P = params();
+    const ref = typeof id === 'string' && id.includes('@') ? window.EGUnitSets.parseId(id) : null;
+    if (ref) {   // a unit of the browser's list: possibly another session or sorting, where trial IDs mean something else
+      if (ref.session !== P.session || ref.sorting !== (P.sorting || '')) P.trial = '';
+      P.session = ref.session; P.sorting = ref.sorting; P.unit = String(ref.unit);
+    } else P.unit = String(id);
     location.hash = hashOf(P);
   }
   $('unitSel').addEventListener('change', e => goUnit(e.target.value));
@@ -421,7 +452,7 @@
   });
   addEventListener('hashchange', () => {
     const P = params();
-    if (P.session !== CUR.session || P.sorting !== CUR.sorting || P.unit !== CUR.unit || P.back !== CUR.back) { loadAll(); return; }
+    if (P.session !== CUR.session || P.sorting !== CUR.sorting || P.unit !== CUR.unit || P.back !== CUR.back || P.list !== CUR.list) { loadAll(); return; }
     CUR = P;
     const id = parseInt(P.trial, 10);
     setPin(Number.isFinite(id) ? id : null, false);
@@ -458,6 +489,40 @@
     const shown = base.filter(T => stable.has(T.id));
     const qc = info.qc || {};
     return {S, unit, info, sp, stable, reason, counts, base, shown, qc, meta: S.unitMap.get(unit), rel: new Map()};
+  }
+
+  // -------------------------------------------------------------- profile
+  /** The unit's rows in the annotation sets (unitset.js), one tab per set, under the header. */
+  async function renderProfile(S, unit, token) {
+    const box = $('profile'); box.hidden = true; box.textContent = '';
+    const US = window.EGUnitSets, sorting = CUR.sorting || '';
+    let all;
+    try { all = await US.sets(); } catch (e) { return; }
+    const hits = [];
+    for (const s of all) {
+      const sorts = s.sessions[CUR.session];
+      if (!sorts || !sorts.includes(sorting)) continue;
+      try {
+        const d = await US.rows(s.name, CUR.session);
+        const row = d.rows.find(r => r.unit === unit && (r.sorting || '') === sorting);
+        if (row) hits.push({s, d, row});
+      } catch (e) { /* a set that cannot be read is skipped */ }
+    }
+    if (token !== TOKEN || !hits.length) return;
+    box.hidden = false;
+    const draw = i => {
+      const {s, d, row} = hits[i], src = s.source || {}, rep = US.reportUrl(s.report);
+      const hasCard = d.byKey.has('has_card') ? row.has_card === true : d.hasCards;
+      box.innerHTML = `<h2 style="margin:0 0 6px;font-size:15.5px;font-weight:650">Profile</h2>`
+        + (hits.length > 1 ? `<div class="tabs">${hits.map((h, k) => `<button type="button" class="chip${k === i ? ' on' : ''}" data-i="${k}">${esc(h.s.title)}</button>`).join('')}</div>` : '')
+        + `<div class="u-note" style="margin:0 0 8px"><b>${esc(s.title)}</b>${src.folder ? ` · source: ${esc(src.folder)}${src.commit ? ' @ ' + esc(src.commit) : ''}` : ''}${rep ? ` · <a href="${esc(rep)}" target="_blank" rel="noopener">report ↗</a>` : ''}</div>`
+        + `<div class="body${hasCard ? '' : ' nocard'}"><div>${US.fieldsHtml(d, row)}</div>`
+        + (hasCard ? `<div><a href="${esc(US.cardUrl(s.name, row))}" target="_blank" rel="noopener" title="Open the card full size"><img class="card" loading="lazy" alt="Card of unit ${unit}" src="${esc(US.cardUrl(s.name, row))}"></a></div>` : '') + '</div>';
+      box.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => draw(+b.dataset.i)));
+      const img = box.querySelector('img.card');
+      if (img) img.addEventListener('error', () => { const body = box.querySelector('.body'); body.classList.add('nocard'); img.closest('div').remove(); });
+    };
+    draw(0);
   }
 
   // ------------------------------------------------------------------ head

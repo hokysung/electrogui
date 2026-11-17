@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>electro · units</title>
+  <link rel="icon" type="image/svg+xml" href="/icons/electro.svg">
+  <link rel="stylesheet" href="/explorer.css">
+  <link rel="stylesheet" href="/trace.css">
+  <link rel="stylesheet" href="/unit.css">
+  <link rel="stylesheet" href="/units.css">
+</head>
+<body>
+<div class="tr-wrap ub-wrap">
+  <section class="tr-card u-bar ub-bar">
+    <div class="tr-bar">
+      <a class="tr-btn" href="/" title="The raster explorer">← explorer</a>
+      <label class="u-pick" title="Unit set"><span class="u-pick-l">set</span><select id="setSel" aria-label="Unit set"></select></label>
+      <button class="tr-btn ub-filter-btn" id="filterBtn" type="button" aria-expanded="false">Filters</button>
+      <span class="grow"></span>
+      <button class="tr-btn tr-theme" id="themeBtn" type="button" title="Colour theme: light, dark or auto" aria-label="Colour theme"></button>
+    </div>
+  </section>
+
+  <section class="tr-card" id="setInfo"></section>
+  <div class="tr-msg-inline" id="msg" hidden></div>
+
+  <div class="ub-grid" id="grid" hidden>
+    <aside class="tr-card ub-filters" id="filters" aria-label="Filters">
+      <div class="ub-fhead">
+        <input type="search" id="qBox" placeholder="search text (press /)" autocomplete="off" aria-label="Search text columns">
+        <button class="tr-btn" id="clearBtn" type="button">Clear filters</button>
+      </div>
+      <div class="ub-presets" id="presets"></div>
+      <div id="fblocks"></div>
+    </aside>
+    <section class="tr-card ub-table" id="tableCard">
+      <div class="ub-tbar">
+        <b id="count"></b>
+        <span class="grow"></span>
+        <details class="ub-cols" id="colsMenu"><summary class="tr-btn">Columns</summary><div class="ub-colspop" id="colsPop"></div></details>
+      </div>
+      <div class="ub-scroll" id="scroll" tabindex="0"><table id="tbl"></table></div>
+      <div class="u-note" id="tnote"></div>
+    </section>
+    <aside class="tr-card ub-detail" id="detail" aria-label="Unit detail"></aside>
+  </div>
+</div>
+<script src="/core.js"></script>
+<script src="/unitset.js"></script>
+<script src="/units.js"></script>
+</body>
+</html>

@@ -32,12 +32,13 @@ from .configs import discover_configs
 from .findings import FindingStore
 from .preview import preview
 from .sortings import SortingStore, normalize_sorting
+from .unit_sets import UnitSets
 from . import explorer
 
 
 class Application:
     def __init__(self, store: SessionStore, findings_dir: str | Path | None = None, config_dirs=(),
-                 trace_dir: str | Path | None = None):
+                 trace_dir: str | Path | None = None, annotations_dir: str | Path | None = None):
         if type(store) is SessionStore:   # a plain store: the same sessions, plus their alternate sortings
             store = SortingStore(store.roots, store.session_files, store.cache_dir)
         self.store = store
@@ -45,6 +46,8 @@ class Application:
         self.config_dirs = [Path(d).expanduser().absolute() for d in config_dirs or ()]
         # The trace page's snippets, read from the cluster when a trial is opened (None: the page is off).
         self.traces = TraceFetcher(trace_dir) if trace_dir is not None else None
+        # Unit annotation sets (unit_sets.py): None = none, the browser page then lists nothing.
+        self.unit_sets = UnitSets(annotations_dir, store.roots) if annotations_dir is not None else None
         self.jobs = OrderedDict()
         self.preview_jobs = OrderedDict()
         self.lock = threading.RLock()
@@ -336,6 +339,23 @@ class Application:
                 return dict(self.preview_jobs[job_id])
             raise KeyError(job_id)
 
+    def annotations(self, parts, query):
+        """``/api/annotations``, ``/api/annotations/<name>`` and ``/api/annotations/<name>/card``: ``(body, media type)``."""
+        if self.unit_sets is None:
+            if len(parts) == 2:
+                return {"sets": []}, "application/json"
+            raise KeyError("This server was started without an annotations folder.")
+
+        def one(key, default=None):
+            return query.get(key, [default])[0]
+        if len(parts) == 2:
+            return self.unit_sets.list(), "application/json"
+        if len(parts) == 3:
+            return self.unit_sets.rows(parts[2], one("session"), one("sorting")), "application/json"
+        if len(parts) == 4 and parts[3] == "card":
+            return self.unit_sets.card(parts[2], one("session", ""), one("sorting", ""), one("unit", "")), "image/png"
+        raise KeyError("Unknown annotations endpoint")
+
     def figure(self, query):
         """``/api/figure``: one exported PNG or JPEG of a session's ``figures`` folder, ``(bytes, media type)``."""
         session_id = query.get("session", [None])[0]
@@ -594,6 +614,9 @@ def make_server(application, host="127.0.0.1", port=8765, token=None, tailnet=No
                                 "code_changed": code_changed_since()})
                 elif url.path.startswith("/api/explorer/"):
                     self._send(application.explore(url.path.rsplit("/", 1)[1], parse_qs(url.query)))
+                elif url.path == "/api/annotations" or url.path.startswith("/api/annotations/"):
+                    body, media = application.annotations(url.path.strip("/").split("/"), parse_qs(url.query, keep_blank_values=True))
+                    self._send(body, content_type=media)
                 elif url.path == "/api/figure":
                     body, media = application.figure(parse_qs(url.query))
                     self._send(body, content_type=media)

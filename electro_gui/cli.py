@@ -46,6 +46,9 @@ def add_arguments(parser):
     parser.add_argument("--findings-dir",
                         help="Folder of saved findings (one JSON file and one PNG each), shared by every device that opens "
                              f"this server (default: ${OUTPUT_ENV}/findings, else ~/electro_gui_output/findings).")
+    parser.add_argument("--annotations-dir",
+                        help="Folder of unit annotation sets for the unit browser (<name>.csv, <name>.json, <name>_cards/) "
+                             f"(default: ${OUTPUT_ENV}/unit_annotations, else ~/electro_gui_output/unit_annotations).")
     parser.add_argument("--config-dir", action="append",
                         help="Directory of JSON config files for the Views menu (a deck's electro_gui_configs/, or a folder "
                              "holding decks); repeat for several. Relative to the current directory; a missing one is empty "
@@ -63,6 +66,11 @@ def _folders(args):
     return cache_dir, findings_dir, config_dirs
 
 
+def annotations_dir(args):
+    """The unit annotation sets folder: ``--annotations-dir``, else ``<output>/unit_annotations`` (paths.py)."""
+    return Path(args.annotations_dir).expanduser() if getattr(args, "annotations_dir", None) else output_root() / "unit_annotations"
+
+
 def run(args):
     # A restart keeps the port (even one --port 0 chose) and the token (even a
     # random one), so open pages and phones reconnect, and opens no browser.
@@ -76,7 +84,7 @@ def run(args):
     roots = args.data_root if args.data_root is not None else default_roots()
     store = SortingStore(roots=roots, session_files=args.session_file or [], cache_dir=cache_dir)
     application = Application(store, findings_dir=findings_dir, config_dirs=config_dirs,
-                              trace_dir=output_root() / "traces")
+                              trace_dir=output_root() / "traces", annotations_dir=annotations_dir(args))
     host = "0.0.0.0" if args.lan else args.host
     token = args.token  # optional on loopback: tailscale serve lets this node's owner in without one (server.Tailnet)
     if restart and token is None:

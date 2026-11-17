@@ -2,6 +2,8 @@
 
 * ``<output>/cache``    the derived-result cache (disposable)
 * ``<output>/findings`` saved findings (JSON + PNG each)
+* ``<output>/unit_annotations`` unit annotation sets for the unit browser (``--annotations-dir``;
+                        ``unit_sets.py``)
 * ``<output>/traces``   voltage snippets the trace page fetched from the cluster (disposable,
                         capped at 1 GB; ``session_viewer.trace_fetch``)
 

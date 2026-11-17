@@ -49,6 +49,7 @@ the sorting its state names.  `--session-file` sessions have only their default.
 | `--cache-dir` | `$ELECTRO_GUI_OUTPUT/cache`, else `~/electro_gui_output/cache` |
 | `--findings-dir` | `$ELECTRO_GUI_OUTPUT/findings`, else `~/electro_gui_output/findings` |
 | `--config-dir` | none (repeatable; a missing directory is empty) |
+| `--annotations-dir` | `$ELECTRO_GUI_OUTPUT/unit_annotations`, else `~/electro_gui_output/unit_annotations` |
 
 ### From the Mac, a tablet or a phone
 
@@ -240,6 +241,33 @@ highlighted in every raster and on the session plot, a chip appears with a *Raw 
 are computed in the browser from `/api/explorer/spiketrain` (spike times to 0.1 ms), `behavior`, `session`,
 `unitinfo` and `stimtrains`.
 
+## Unit sets and the unit browser
+
+A **unit annotation set** is properties of units computed elsewhere (a unit's class after the FEF train, its role, whether a
+close reading of its card judged it real, quality, named task effects ...).  Sets live in `<output>/unit_annotations/`
+(`~/electro_gui_output/unit_annotations`; `--annotations-dir` replaces it), three things sharing one name:
+
+- `<name>.csv`: one row per unit with `session`, `sorting` (empty = the default sorting), `unit`, then any columns;
+- `<name>.json`: `{title, description, source: {folder, commit}, report, columns: [{key, label, group, type, help}]}`, with
+  `type` one of `category` (filter chips), `tags` (`;`-separated values; a unit matches if it has any selected one), `flag`
+  (yes / no / any), `number` (min-max, with a small histogram), `text` (searched by the text box, shown in the detail);
+- `<name>_cards/<session>@<sorting>_u<unit>.png`: optional per-unit images.
+
+A set is read again when its csv or json changes.  `/units.html#set=<name>[&session=][&sorting=][&f=][&sort=][&q=]` browses it:
+the set picker with title, description, source and a link to its report (same host, port 8767), session chips, a filter panel
+(one block per column group, live counts under the other active filters, "Clear filters", and for sets named `unit_profiles*`
+two presets), a dense table (click a header to sort, *Columns* to add or remove), and the selected unit's fields, card and
+buttons *Unit page* and *Explorer* on the right (below on a phone).  Keys: ↑ ↓ move, Enter opens the unit page, / searches.
+Everything is in the address: `f` is `encodeURIComponent` of a JSON object mapping a column key to its filter (category / tags:
+an array of allowed values, `""` meaning empty; flag: `true` / `false`; number: `{"min": x, "max": y}`), `sort` is a column
+key (`-key` for descending), `sel` the selected unit (`<session>@<sorting>:<unit>`), `cols` the shown columns.  The browser
+opens with no filter.
+
+The unit page shows a **Profile** panel (the unit's row in every set that has it, one tab per set, with its card) and, when its
+address carries `list=<the browser's address without sel and cols>`, steps ‹ unit › and ← → through that filtered list, across
+sessions, with *← back to the list* returning to the browser.  `/api/annotations`, `/api/annotations/<name>?session=&sorting=`
+and `/api/annotations/<name>/card?session=&sorting=&unit=` serve the sets (`electro_gui/unit_sets.py`).
+
 ### API
 
 `GET /api/catalog`, `GET /api/health`, `POST /api/restart`;
@@ -248,6 +276,8 @@ and `POST /api/explorer/popfit|popprobe`; `POST /api/jobs` (`load`, `unit`,
 `population`, `preview`, `annotate`, `stable_selection`) with `GET /api/jobs/<id>`
 and `/api/jobs/<id>/export?format=json|csv|svg|membership|stats`;
 `GET /api/configs`; `GET|POST /api/findings…`;
+`GET /api/annotations`, `GET /api/annotations/<name>[?session=&sorting=]`, `GET /api/annotations/<name>/card?session=&sorting=&unit=`
+(unit annotation sets; a card is read only from `<name>_cards/`);
 `GET /api/figure?session=&path=[&sorting=]` (a PNG or JPEG inside the session's `figures/` folder, nothing else);
 `GET /api/trace?session=&unit=&trial=[&sorting=]` (the trace page's snippet,
 `session_viewer.trace_snippet` format; 503 while the cluster is unreachable).  A session must first be opened

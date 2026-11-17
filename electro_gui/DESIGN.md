@@ -95,3 +95,16 @@ The unit page reads `unitinfo` (`explorer.unit_page_info`: the unit's QC columns
 `GET /api/figure?session=&path=[&sorting=]` (`explorer.figure_file`: a relative PNG / JPEG path that resolves, symlinks
 followed, inside the session's `figures/` folder, else 400 / 404).  Its trial rules follow phys-context's
 `trial_rasters` (completed task trials MS / SP / PM inside the recording, 0 < length <= 8 s, stable for the unit).
+
+## Unit sets and the unit browser
+
+`unit_sets.UnitSets(root, session_roots)` reads sets from the annotations folder (`paths`/`cli.annotations_dir`): a name must
+be `<name>.json` plus `<name>.csv` in that folder (else 404), sessions, sortings and unit IDs are validated, and a card path is
+built only from them inside `<name>_cards/`.  Rows come back columnar (`keys`, `rows`) with NaN as null and, where the session's
+`tables/units.csv` exists, the export columns `export_quality`, `export_area`, `peak_channel`, `mean_rate_hz`, `n_stable_trials`
+appended; no session needs to be loaded.  Address contracts:
+
+- `/units.html#set=<name>[&session=][&sorting=][&f=<encodeURIComponent(JSON)>][&sort=<key>|-<key>][&q=][&sel=<session>@<sorting>:<unit>][&cols=a,b]`;
+  `f`: category / tags -> array of allowed values, flag -> true / false, number -> `{min, max}`.
+- `/unit.html#...&list=<browser address without sel and cols>`: the unit page recomputes the filtered, sorted list
+  (`static/unitset.js`, shared with the browser) and steps through it; its back link is `/units.html#<list>&sel=<this unit>`.

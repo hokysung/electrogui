@@ -69,7 +69,7 @@ effect-coded categorical and boolean factors, default `task` x `microstim`).
 - `POST /api/jobs`: `{action: 'load'|'unit'|'population'|'preview'|'annotate'|'stable_selection', ...request}` -> `{id}`.
 - `GET /api/jobs/<id>`: `{id, status: 'queued'|'running'|'done'|'error', message, result?, error?}`.
 - `GET /api/jobs/<id>/export?format=json|csv|svg|membership|stats`: completed result download.
-- `GET /api/explorer/{session,table,raster,events,spiketrain,behavior,popspans,stability,stable_roster}`,
+- `GET /api/explorer/{session,table,raster,events,spiketrain,behavior,unitinfo,stimtrains,popspans,stability,stable_roster}`,
   `POST /api/explorer/{popfit,popprobe}`: the explorer's synchronous reads.
 - `GET|POST /api/findings...`, `GET /api/configs`, `GET /api/health`, `POST /api/restart`.
 
@@ -80,3 +80,18 @@ source file or code changed while it ran is refused.  Annotation layers
 (`reference`, `event`, `interval`; source `recorded_events`; match
 `same_trial`) are display-only: an `annotate` job never changes membership or
 numbers.  Static assets are local; no CDN, remote data or cluster access.
+
+## Page address contracts
+
+Other pages (reports, the explorer, the trace page) link to these; do not change them.
+
+- `/unit.html#session=<id>&sorting=<name, or empty for the default>&unit=<unit id>[&trial=<trial id to pin>][&back=<url-encoded URL of the linking page>]`.
+  The page keeps `trial` in the hash as the pin changes (`history.replaceState`); a new `unit` is a history entry.  Only
+  http, https and file `back` addresses become the back link.
+- `/trace.html#session=…&sorting=…&unit=…&trial=…` (see `static/trace.js`), `/#s=<core.js encodeState(state)>` (explorer).
+
+The unit page reads `unitinfo` (`explorer.unit_page_info`: the unit's QC columns, stable trial IDs, exported figures),
+`stimtrains` (`explorer.stim_trains`: one row per stim or sham train with onset, condition, `dur_s`, task) and
+`GET /api/figure?session=&path=[&sorting=]` (`explorer.figure_file`: a relative PNG / JPEG path that resolves, symlinks
+followed, inside the session's `figures/` folder, else 400 / 404).  Its trial rules follow phys-context's
+`trial_rasters` (completed task trials MS / SP / PM inside the recording, 0 < length <= 8 s, stable for the unit).

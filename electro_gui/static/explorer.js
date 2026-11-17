@@ -777,6 +777,9 @@
     const u = D.units.find(x => x.id === S.unit);
     $('unitLabel').textContent = u ? `${u.id}${u.peak_channel !== null && u.peak_channel !== undefined ? ` · ch ${u.peak_channel}` : ''}` : '—';
     $('unitBtn').title = u ? `${unitName(u)} · ${u.area || 'area ?'} · ${u.quality}` : '';
+    const upl = $('unitPageLink');   // the unit page for this unit; hidden where no single unit is shown
+    upl.hidden = !(S.mode === 'raster' && u && S.session);
+    if (!upl.hidden) upl.href = `/unit.html#${new URLSearchParams({session: S.session, sorting: S.sorting || '', unit: String(u.id)})}`;
     $('rosterLabel').textContent = S.roster.length ? `${S.roster.length} neurons` : 'no neurons';
     const a = D.summary && D.summary.alignments.find(x => x.key === S.align);
     $('alignLabel').textContent = eventLabel(S.align) + (a ? ` · ${a.n}` : '');

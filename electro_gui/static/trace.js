@@ -72,6 +72,7 @@
     $('counts').textContent = ''; $('legend').textContent = ''; $('srcInfo').textContent = '';
     document.title = `unit ${P.unit} trial ${P.trial} · traces`;
     updateTrialButtons(); draw();
+    $('unitPage').href = P.session && P.unit ? '/unit.html#' + new URLSearchParams({session: P.session, sorting: P.sorting, unit: P.unit, trial: P.trial}) : '/unit.html';
     if (!P.session || !P.unit || !P.trial) { setMsg('err', 'The address needs session, unit and trial (…#session=…&unit=…&trial=…).', false); return; }
     setMsg('load', 'Reading the traces from the cluster. The first load of a trial takes about 5 seconds; later loads are cached.');
     try {

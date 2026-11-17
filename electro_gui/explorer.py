@@ -11,7 +11,10 @@ browser cannot compute from the session:
   each row's eligible span under a stability policy;
 * ``event_times``: the times of one recorded event, for per-row markers;
 * ``spike_train``: one unit's whole spike train, for the behavior timeline;
-* ``behavior_timeline``: every trial's span, task, outcome, stimulation and events.
+* ``behavior_timeline``: every trial's span, task, outcome, stimulation and events;
+* ``unit_page_info`` / ``stim_trains`` / ``figure_file``: what the unit page (``static/unit.html``) needs on top
+  of those: one unit's QC row, stable trials and exported figures, every stimulation train with its duration,
+  and a safe path into the session's ``figures`` folder.
 
 Row candidacy and eligibility follow :func:`electro_gui.analysis.prepare_rows`
 exactly: complete trials only, finite times inside the ephys recording and
@@ -28,6 +31,7 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter, OrderedDict
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
@@ -538,3 +542,117 @@ def population_probe(loaded: Any, request: Mapping[str, Any]) -> dict:
         out.append({"t": t, "bin_index": j, "bin_centre": round(float(inp["times"][j]), 6), "groups": groups})
     return {"kind": "population_probe", "unit": inp["weight"], "probes": out,
             "note": "centroid of each group's points equals its trajectory point at that bin"}
+
+
+# --------------------------------------------------------------------------- #
+# Unit page
+# --------------------------------------------------------------------------- #
+
+_QC_COLUMNS = ("snr", "isi_violations_ratio", "presence_ratio", "amplitude_median", "bc_unit_type", "manual_label",
+               "source_unit_id", "stream")
+FIGURE_SUFFIXES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+def _plain(value: Any):
+    """A JSON-safe scalar: NaN, inf and missing become None, numpy scalars become Python ones."""
+    if value is None:
+        return None
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, (bool, int)):
+        return value
+    text = str(value)
+    return None if text.strip().lower() in ("", "nan", "none", "<na>") else text
+
+
+def figure_root(loaded: Any) -> Path:
+    """The ``figures`` folder next to this session's (or sorting's) ``session.h5``."""
+    return Path(loaded.file.path).parent / "figures"
+
+
+def unit_page_info(loaded: Any, unit_id: int) -> dict:
+    """One unit's QC columns, stable trial IDs and exported figures, for the unit page.
+
+    ``stable`` lists the trial IDs of the post-sorting stability check, with ``n_complete`` the completed
+    trials it is a part of.  ``figures`` lists the static PNGs exported for the unit (``figures/unit_rasters``
+    and ``figures/panels/unit_NNNN_*``) as paths relative to ``figures/``, titled from ``panels/manifest.json``.
+    """
+    if isinstance(unit_id, bool) or int(unit_id) not in {int(u["id"]) for u in loaded.units}:
+        raise ValueError(f"Unknown unit ID: {unit_id!r}")
+    unit_id = int(unit_id)
+    table = loaded.file.units
+    row = table[table["id"] == unit_id].iloc[0]
+    qc = {key: _plain(row[key]) for key in _QC_COLUMNS if key in table.columns}
+    stable = sorted(int(t) for t in loaded.file.stable_trials.get(unit_id, ()))
+    complete = {int(t["id"]) for t in loaded.trials if t.get("complete") is True}
+    figures = []
+    root = figure_root(loaded)
+    if root.is_dir():
+        manifest = {}
+        try:
+            for entry in json.loads((root / "panels" / "manifest.json").read_text()).get("panels", []):
+                manifest[entry.get("key")] = entry
+        except (OSError, ValueError, AttributeError):
+            manifest = {}
+        prefix = f"unit_{unit_id:04d}_"
+        for folder in sorted((root / "unit_rasters").glob(prefix + "*.png")) if (root / "unit_rasters").is_dir() else []:
+            figures.append({"key": "rates_raster", "group": "Overview", "title": "Rates and raster (exported)",
+                            "desc": "The exported rates-and-raster figure for this unit.",
+                            "path": f"unit_rasters/{folder.name}"})
+        panels = root / "panels"
+        for folder in sorted(panels.glob(prefix + "*")) if panels.is_dir() else []:
+            if not folder.is_dir():
+                continue
+            for png in sorted(folder.glob("*.png")):
+                meta = manifest.get(png.stem, {})
+                figures.append({"key": png.stem, "group": meta.get("group") or "Other", "title": meta.get("title") or png.stem,
+                                "desc": meta.get("desc") or "", "path": f"panels/{folder.name}/{png.name}"})
+    return {"session_id": loaded.session_id, "unit": unit_id, "qc": qc, "stable": stable, "n_complete": len(complete),
+            "figures": figures}
+
+
+def stim_trains(loaded: Any) -> dict:
+    """Every stimulation or sham train: its trial, onset (session clock), condition, duration and task.
+
+    One train per trial (the pooled ``stim_train`` alignment).  ``dur_s`` is the trial's ``microstim_dur``
+    (ms in the export) in seconds, None where the export has none; ``condition`` is ``stim`` or ``sham``, None on
+    ConnectivityMapping trials; ``connectivity`` flags those trials.
+    """
+    cache = explorer_cache(loaded)
+    if "stim_trains" not in cache:
+        rows = [r for r in alignment_rows(loaded, "stim_train") if _finite(r.get("t"))]
+        rows.sort(key=lambda r: float(r["t"]))
+        def dur(r):
+            v = r.get("microstim_dur")
+            return round(float(v) / 1000.0, 6) if _finite(v) else None
+        cache["stim_trains"] = {
+            "session_id": loaded.session_id, "n": len(rows),
+            "trial": [int(r["trial"]) for r in rows], "t": [round(float(r["t"]), 6) for r in rows],
+            "condition": [r.get("stim_condition") if r.get("stim_condition") in ("stim", "sham") else None for r in rows],
+            "dur_s": [dur(r) for r in rows], "task": [_plain(r.get("task")) for r in rows],
+            "connectivity": [r.get("connectivity") is True for r in rows]}
+    return cache["stim_trains"]
+
+
+def figure_file(loaded: Any, relative: str) -> tuple[Path, str]:
+    """The exported figure at ``relative`` inside this session's ``figures`` folder, with its media type.
+
+    Anything that is not a plain relative path to a PNG or JPEG that resolves inside ``figures`` is refused.
+    """
+    if not isinstance(relative, str) or not relative or "\0" in relative or "\\" in relative or relative.startswith("/"):
+        raise ValueError("path must be a relative path inside figures/")
+    parts = relative.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        raise ValueError("path must be a relative path inside figures/")
+    suffix = Path(relative).suffix.lower()
+    if suffix not in FIGURE_SUFFIXES:
+        raise ValueError("only PNG and JPEG figures are served")
+    root = figure_root(loaded).resolve()
+    path = (root / relative).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError("path must stay inside figures/")
+    if not path.is_file():
+        raise KeyError("Unknown figure")
+    return path, FIGURE_SUFFIXES[suffix]

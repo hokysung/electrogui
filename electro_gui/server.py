@@ -248,6 +248,14 @@ class Application:
                 except ValueError:
                     raise ValueError("unit must be an integer ID") from None
                 return explorer.spike_train(loaded, unit)
+            if what == "unitinfo":
+                try:
+                    unit = int(one("unit"))
+                except ValueError:
+                    raise ValueError("unit must be an integer ID") from None
+                return explorer.unit_page_info(loaded, unit)
+            if what == "stimtrains":
+                return explorer.stim_trains(loaded)
             if what == "events":
                 return explorer.event_times(loaded, one("event"))
             if what == "behavior":
@@ -327,6 +335,19 @@ class Application:
             if job_id in self.preview_jobs:
                 return dict(self.preview_jobs[job_id])
             raise KeyError(job_id)
+
+    def figure(self, query):
+        """``/api/figure``: one exported PNG or JPEG of a session's ``figures`` folder, ``(bytes, media type)``."""
+        session_id = query.get("session", [None])[0]
+        if not session_id:
+            raise ValueError("Missing query parameter 'session'.")
+        relative = query.get("path", [None])[0]
+        if relative is None:
+            raise ValueError("Missing query parameter 'path'.")
+        with self.store_lock:
+            loaded = self.load(session_id, query.get("sorting", [None])[0])
+            path, media = explorer.figure_file(loaded, relative)
+        return path.read_bytes(), media
 
     def trace(self, query):
         """``/api/trace``: one unit's channels for one trial +- 1 s, gzipped (``session_viewer.trace_snippet``).
@@ -573,6 +594,9 @@ def make_server(application, host="127.0.0.1", port=8765, token=None, tailnet=No
                                 "code_changed": code_changed_since()})
                 elif url.path.startswith("/api/explorer/"):
                     self._send(application.explore(url.path.rsplit("/", 1)[1], parse_qs(url.query)))
+                elif url.path == "/api/figure":
+                    body, media = application.figure(parse_qs(url.query))
+                    self._send(body, content_type=media)
                 elif url.path == "/api/trace":
                     self._send(application.trace(parse_qs(url.query)), content_type="application/octet-stream",
                                gzipped_body=True)

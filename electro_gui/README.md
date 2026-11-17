@@ -207,14 +207,48 @@ export, a bare state object and a saved finding are accepted as they are.
            "win": [-1, 1.5], "cw": [0.05, 0.25]}}
 ```
 
+## Unit page
+
+`/unit.html#session=<id>&sorting=<name or empty>&unit=<id>[&trial=<id>][&back=<url-encoded URL>]` shows one
+unit with no setup, and is the page to link to from reports.  The explorer (beside the unit title) and the trace page
+(header) link to it, and it links back to both.  From top to bottom:
+
+1. **Header**: QC (area, channel, depth, quality labels, mean rate, spikes, stable trials, SNR, ISI violations, presence,
+   amplitude), prev / next unit (buttons, ← →; sua and mua units only), a unit picker, *back to the report* (the `back`
+   address, http, https or file only), *Open in explorer* and the light / dark button (same `eg-theme` key; opens light).
+2. **Whole trial, every trial**: per task (MS memory saccade, SP pursuit, PM pursuit memory) and pooled, an all-trial
+   raster from 0.5 s before trial start to 1.5 s after the longest shown trial's end, sorted by trial length (shortest at the
+   bottom), with fixation on, target on, response (pursuit start for SP), reward start, stim / sham train and trial end drawn
+   on each row; PSTH beneath (20 ms bins, Gaussian σ 50 ms, only where at least 20 trials still run). The peak time is
+   marked, with the peaks of odd and even trials as two small triangles and their gap in the text (the trial_rasters rules:
+   odd = 1st, 3rd, ... trial of the task trials that pass every rule before stability, halves need 10 running trials).
+   Trials shown: stable for this unit, completed, inside the recording, at most 8 s; the page prints how many were left
+   out and why.
+3. **Stimulation, stim vs sham** (only when the session has trains in task trials): rasters and PSTHs aligned to train
+   onset (−0.4 to +0.9 s), one column per task and all tasks; shaded train, count window 5–205 ms after the end of each
+   trial's own train (`microstim_dur`), baseline −300 to −50 ms; n and Hz for stim and sham and their ratio.
+4. **Task events**: PSTHs and thin rasters aligned to fixation on, target on, response and reward start, coloured by
+   task; trials without a train when the session has stim trains, else all.
+5. **Over the session**: rate against session time, with blocks of consecutive fixation / task / other trials shaded and
+   the stability check per trial along the bottom.
+6. **Spike train statistics**: ISI histogram (0-50 ms, 1.5 ms line) and autocorrelogram (±100 ms, 1 ms bins) from all spikes.
+7. **Exported panels** (folded): the PNGs exported for the unit under the session's `figures/` folder, loaded on open.
+
+Hover a raster row for the trial's id, task, stim condition, outcome and length; click to **pin** it: the row is
+highlighted in every raster and on the session plot, a chip appears with a *Raw traces* button (`/trace.html`, new tab), and
+`&trial=` in the address keeps the pin so a link carries it (click the pinned row again or press Esc to unpin).  All numbers
+are computed in the browser from `/api/explorer/spiketrain` (spike times to 0.1 ms), `behavior`, `session`,
+`unitinfo` and `stimtrains`.
+
 ### API
 
 `GET /api/catalog`, `GET /api/health`, `POST /api/restart`;
-`GET /api/explorer/session|table|raster|events|behavior|spiketrain|popspans|stability|stable_roster`
+`GET /api/explorer/session|table|raster|events|behavior|spiketrain|unitinfo|stimtrains|popspans|stability|stable_roster`
 and `POST /api/explorer/popfit|popprobe`; `POST /api/jobs` (`load`, `unit`,
 `population`, `preview`, `annotate`, `stable_selection`) with `GET /api/jobs/<id>`
 and `/api/jobs/<id>/export?format=json|csv|svg|membership|stats`;
 `GET /api/configs`; `GET|POST /api/findings…`;
+`GET /api/figure?session=&path=[&sorting=]` (a PNG or JPEG inside the session's `figures/` folder, nothing else);
 `GET /api/trace?session=&unit=&trial=[&sorting=]` (the trace page's snippet,
 `session_viewer.trace_snippet` format; 503 while the cluster is unreachable).  A session must first be opened
 with a `load` job.  The catalog lists each session's `sortings`

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>electro · unit page</title>
+  <link rel="icon" type="image/svg+xml" href="/icons/electro.svg">
+  <link rel="stylesheet" href="/explorer.css">
+  <link rel="stylesheet" href="/trace.css">
+  <link rel="stylesheet" href="/unit.css">
+</head>
+<body>
+<div class="tr-wrap">
+  <section class="tr-card u-bar" id="bar">
+    <div class="tr-bar">
+      <a class="tr-btn" id="backLink" href="/" hidden>← back to the report</a>
+      <button class="tr-btn" id="prevUnit" type="button" title="Previous unit (←)" aria-label="Previous unit">‹ unit</button>
+      <label class="u-pick" title="Unit"><span class="u-pick-l">unit</span>
+        <select id="unitSel" aria-label="Unit"></select></label>
+      <button class="tr-btn" id="nextUnit" type="button" title="Next unit (→)" aria-label="Next unit">unit ›</button>
+      <a class="tr-btn" id="explorerLink" href="/">Open in explorer</a>
+      <span class="grow"></span>
+      <button class="tr-btn tr-theme" id="themeBtn" type="button" title="Colour theme: light, dark or auto" aria-label="Colour theme"></button>
+    </div>
+    <div class="u-pin" id="pinBar" hidden></div>
+  </section>
+
+  <section class="tr-card tr-head" id="head">
+    <h1 id="title">Unit page</h1>
+    <div class="meta" id="meta"></div>
+    <dl class="u-stats" id="stats"></dl>
+    <div class="u-note" id="headNote"></div>
+  </section>
+
+  <div class="tr-msg-inline" id="msg" hidden></div>
+  <main id="main"></main>
+</div>
+<div class="u-tip" id="tip" hidden></div>
+<script src="/core.js"></script>
+<script src="/unit.js"></script>
+</body>
+</html>
